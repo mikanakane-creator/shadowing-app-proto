@@ -85,6 +85,12 @@ await page.click('text=答え合わせ');
 await page.waitForTimeout(200);
 ok('正解表示', (await page.textContent('#app')).includes('正解！次へ'));
 await page.click('text=正解！次へ');
+await page.waitForTimeout(300);
+const meaningTxt = await page.textContent('#app');
+ok('意味の確認画面', meaningTxt.includes('意味の確認'));
+ok('日本語訳表示', meaningTxt.includes('何種類のコーヒー'));
+ok('単語の意味リスト', meaningTxt.includes('単語の意味'));
+await page.click('text=意味OK、音読へ');
 await page.waitForTimeout(200);
 ok('Step3 音読', (await page.textContent('#app')).includes('Step 3'));
 
