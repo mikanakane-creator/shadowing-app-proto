@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>シャドーイング（仮）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --accent: #4F46E5; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+    background: #FAFAF8;
+    color: #2D2D2D;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .en { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif; }
+  .btn-primary {
+    background: var(--accent); color: #fff;
+    border-radius: 1rem; padding: 0.9rem 1.5rem;
+    font-size: 1.05rem; font-weight: 600;
+    transition: opacity .15s, transform .05s;
+  }
+  .btn-primary:active { transform: scale(0.97); }
+  .btn-primary:disabled { opacity: 0.35; }
+  .btn-secondary {
+    background: #EFEEEA; color: #2D2D2D;
+    border-radius: 1rem; padding: 0.9rem 1.5rem;
+    font-size: 1.05rem; font-weight: 600;
+  }
+  .btn-secondary:active { transform: scale(0.97); }
+  .chip {
+    background: #fff; border: 1.5px solid #E2E0DA;
+    border-radius: 0.9rem; padding: 0.55rem 1rem;
+    font-size: 1.15rem; font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    transition: transform .05s;
+  }
+  .chip:active { transform: scale(0.95); }
+  .chip.used { opacity: 0.25; pointer-events: none; }
+  .blank-slot {
+    display: inline-block; min-width: 3.2em; text-align: center;
+    border-bottom: 2.5px solid #C9C6BE; padding: 0 0.2em;
+    color: var(--accent); font-weight: 600; cursor: pointer;
+  }
+  .blank-slot.empty { color: transparent; }
+  .blank-slot.wrong { border-color: #DC2626; color: #DC2626; }
+  .blank-slot.correct { border-color: #16A34A; color: #16A34A; }
+  .mic-btn {
+    width: 4.5rem; height: 4.5rem; border-radius: 9999px;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem; box-shadow: 0 4px 14px rgba(79,70,229,0.35);
+    transition: transform .1s;
+  }
+  .mic-btn:active { transform: scale(0.93); }
+  .mic-btn.recording { background: #DC2626; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.4); } 50% { box-shadow: 0 0 0 14px rgba(220,38,38,0); } }
+  .fade-in { animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="max-w-md mx-auto min-h-screen flex flex-col" id="app"></div>
+
+<script>
+/* ============================================================
+   データ
+============================================================ */
+const SENTENCES = [
+  {
+    id: 1,
+    text: "I don't know how many kinds of coffee they have, but it's a lot.",
+    ja: "何種類のコーヒーがあるのか分からないけど、とにかくたくさんある。",
+    step2Blanks: [2, 5, 9],
+    step4Blanks: [1, 2, 4, 5, 7, 9, 13],
+    dummies: ["drink", "much", "makes"],
+    meanings: { "know": "知っている", "kinds": "種類", "have": "持っている・ある", "don't": "〜しない", "many": "多くの", "coffee": "コーヒー", "lot": "たくさん" }
+  },
+  {
+    id: 2,
+    text: "Is this what you were talking about earlier today?",
+    ja: "これが今日さっき話してたこと？",
+    step2Blanks: [2, 5, 7],
+    step4Blanks: [1, 2, 4, 5, 6, 7],
+    dummies: ["where", "saying", "later"],
+    meanings: { "what": "何・〜のこと", "talking": "話している", "earlier": "さっき・先ほど", "this": "これ", "were": "〜していた", "about": "〜について" }
+  },
+  {
+    id: 3,
+    text: "She said she would come back, but I haven't heard from her since.",
+    ja: "彼女は戻ってくると言ったけど、それ以来連絡がない。",
+    step2Blanks: [3, 5, 9],
+    step4Blanks: [1, 3, 4, 5, 8, 9, 12],
+    dummies: ["could", "told", "gone"],
+    meanings: { "would": "〜するつもりだった", "back": "戻って", "heard": "聞いた", "said": "言った", "come": "来る", "haven't": "〜していない", "since": "それ以来" }
+  }
+];
+
+const DAILY_GOAL = 30;
+const TIMER_SECONDS = 60;        // Step 4（話して埋める）
+const DICTATION_SECONDS = 90;    // Step 2（全文ディクテーションはタップ数が多いので長め）
+
+/* ============================================================
+   ユーティリティ
+============================================================ */
+const $ = (sel) => document.querySelector(sel);
+const app = $("#app");
+
+function tokenize(text) {
+  return text.split(" ").map(raw => {
+    const core = raw.replace(/[^a-zA-Z']/g, "");
+    const suffix = raw.slice(raw.indexOf(core) + core.length);
+    return { raw, core, suffix };
+  });
+}
+
+function normalize(s) {
+  return s.toLowerCase().replace(/[^a-z' ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function matchRate(target, transcript) {
+  const t = normalize(target).split(" ").filter(Boolean);
+  const heard = normalize(transcript).split(" ").filter(Boolean);
+  if (t.length === 0) return 0;
+  const pool = [...heard];
+  let hit = 0;
+  for (const w of t) {
+    const i = pool.indexOf(w);
+    if (i >= 0) { hit++; pool.splice(i, 1); }
+  }
+  return Math.round((hit / t.length) * 100);
+}
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function wordCount(text) {
+  return tokenize(text).filter(t => t.core).length;
+}
+
+/* ============================================================
+   音声（TTS / STT）
+============================================================ */
+let enVoice = null;
+function pickVoice() {
+  const vs = speechSynthesis.getVoices();
+  enVoice = vs.find(v => v.lang === "en-US" && v.name.includes("Samantha"))
+         || vs.find(v => v.lang === "en-US")
+         || vs.find(v => v.lang.startsWith("en"))
+         || null;
+}
+speechSynthesis.onvoiceschanged = pickVoice;
+pickVoice();
+
+function speak(text, rate = 0.95) {
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  if (enVoice) u.voice = enVoice;
+  u.lang = "en-US";
+  u.rate = rate;
+  speechSynthesis.speak(u);
+}
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+let activeRec = null;
+
+function listen(onResult, onEnd) {
+  if (!SR) { onEnd && onEnd(); return null; }
+  const rec = new SR();
+  rec.lang = "en-US";
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  rec.onresult = (e) => onResult(e.results[0][0].transcript);
+  rec.onerror = () => onEnd && onEnd();
+  rec.onend = () => onEnd && onEnd();
+  try { rec.start(); } catch (_) { onEnd && onEnd(); return null; }
+  activeRec = rec;
+  return rec;
+}
+
+function stopListen() {
+  if (activeRec) { try { activeRec.stop(); } catch (_) {} activeRec = null; }
+}
+
+/* ============================================================
+   進捗（localStorage）
+============================================================ */
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function loadProgress() {
+  try {
+    const p = JSON.parse(localStorage.getItem("shadowing_proto") || "null");
+    if (p && p.date === todayKey()) return p;
+  } catch (_) {}
+  return { date: todayKey(), words: 0, done: [] };
+}
+function saveProgress(p) {
+  localStorage.setItem("shadowing_proto", JSON.stringify(p));
+}
+
+/* ============================================================
+   状態
+============================================================ */
+let S = {
+  sentence: null,     // 現在のセンテンス
+  step: 0,            // 1〜5
+  filled: {},         // blankIdx -> word（タップ穴埋め用）
+  bank: [],           // 単語バンク
+  checked: false,
+  timer: null,
+  timeLeft: TIMER_SECONDS,
+  drillQueue: [],     // マイクロドリル対象の単語
+  drillHint: 0,
+  round: 1,           // Step 5 のラウンド
+};
+
+let timerInterval = null;
+function clearTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+/* ============================================================
+   画面骨格
+============================================================ */
+function header(title, showBack = true) {
+  return `
+  <div class="flex items-center px-5 pt-6 pb-3">
+    ${showBack ? `<button onclick="goHome()" class="text-gray-400 text-2xl leading-none mr-3">‹</button>` : `<span class="w-6"></span>`}
+    <div class="flex-1 text-center font-semibold text-gray-500 text-sm tracking-wide">${title}</div>
+    <span class="w-6"></span>
+  </div>`;
+}
+
+function stepDots(current) {
+  let dots = "";
+  for (let i = 1; i <= 5; i++) {
+    dots += `<span class="inline-block w-2 h-2 rounded-full mx-1 ${i === current ? "bg-indigo-600 scale-125" : i < current ? "bg-indigo-300" : "bg-gray-300"}" style="transition:all .2s"></span>`;
+  }
+  return `<div class="text-center mb-1">${dots}</div>`;
+}
+
+function timerBadge() {
+  const m = Math.floor(S.timeLeft / 60), s = String(S.timeLeft % 60).padStart(2, "0");
+  const danger = S.timeLeft <= 10;
+  return `<div id="timer" class="text-center text-sm font-semibold mb-3 ${danger ? "text-red-500" : "text-gray-400"}">⏱ ${m}:${s}</div>`;
+}
+
+/* ============================================================
+   ホーム画面
+============================================================ */
+function goHome() {
+  clearTimer(); stopListen(); speechSynthesis.cancel();
+  const p = loadProgress();
+  const pct = Math.min(100, Math.round((p.words / DAILY_GOAL) * 100));
+  const items = SENTENCES.map(s => {
+    const done = p.done.includes(s.id);
+    return `
+    <button onclick="startSession(${s.id})" class="w-full text-left bg-white rounded-2xl px-5 py-4 mb-3 shadow-sm border border-gray-100 fade-in ${done ? "opacity-60" : ""}">
+      <div class="en text-lg font-medium leading-snug">${s.text}</div>
+      <div class="flex items-center mt-2 text-sm text-gray-400">
+        <span>${wordCount(s.text)}語</span>
+        ${done ? `<span class="ml-auto text-green-600 font-semibold">✓ 完了</span>` : `<span class="ml-auto text-indigo-500 font-semibold">はじめる ›</span>`}
+      </div>
+    </button>`;
+  }).join("");
+
+  app.innerHTML = `
+    ${header("シャドーイング（仮）", false)}
+    <div class="px-5 pb-10 flex-1">
+      <div class="bg-white rounded-2xl px-5 py-4 mb-6 shadow-sm border border-gray-100">
+        <div class="flex items-end justify-between mb-2">
+          <span class="text-sm font-semibold text-gray-500">今日のワード数</span>
+          <span class="text-2xl font-bold text-indigo-600">${p.words}<span class="text-sm text-gray-400 font-medium"> / ${DAILY_GOAL}</span></span>
+        </div>
+        <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-full bg-indigo-500 rounded-full" style="width:${pct}%; transition: width .4s"></div>
+        </div>
+      </div>
+      <div class="text-sm font-semibold text-gray-500 mb-3 px-1">今日のセンテンス</div>
+      ${items}
+      ${!SR ? `<p class="text-xs text-gray-400 mt-4 px-1">※ このブラウザは音声認識非対応です。発音チェックは「OKで進む」ボタンで通過できます。</p>` : ""}
+    </div>`;
+}
+
+/* ============================================================
+   セッション開始
+============================================================ */
+function startSession(id) {
+  S.sentence = SENTENCES.find(s => s.id === id);
+  S.step = 1;
+  S.round = 1;
+  renderStep1();
+}
+
+/* ============================================================
+   Step 1: Listen
+============================================================ */
+function renderStep1() {
+  clearTimer();
+  app.innerHTML = `
+    ${header("Step 1 · 聞く")}
+    ${stepDots(1)}
+    <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
+      <div class="text-6xl mb-8">🎧</div>
+      <p class="text-gray-500 text-center mb-10 leading-relaxed">まずは音だけ聞いてみよう。<br>何回聞いてもOK。</p>
+      <button class="btn-primary w-full mb-3" onclick="speak(S.sentence.text)">▶︎ 再生</button>
+      <button class="btn-secondary w-full" onclick="speak(S.sentence.text, 0.75)">🐢 ゆっくり再生</button>
+    </div>
+    <div class="px-8 pb-10">
+      <button class="btn-primary w-full" onclick="gotoTapFill()">次へ</button>
+    </div>`;
+  speak(S.sentence.text);
+}
+
+/* ============================================================
+   Step 2 & 4: Tap-to-Fill
+============================================================ */
+function gotoTapFill() {
+  clearTimer(); stopListen();
+  S.step = 2;
+  const tokens = tokenize(S.sentence.text);
+  // ディクテーション：ほぼ全文を空欄にして単語バンクから再構成する
+  S.blanks = tokens.map((t, i) => t.core ? i : -1).filter(i => i >= 0);
+  const answers = S.blanks.map(i => tokens[i].core);
+  S.filled = {};
+  S.checked = false;
+  S.bank = shuffle([...answers, ...S.sentence.dummies.slice(0, 2)]);
+  S.timeLeft = DICTATION_SECONDS;
+  renderTapFill();
+  startTapFillTimer();
+}
+
+function startTapFillTimer() {
+  clearTimer();
+  timerInterval = setInterval(() => {
+    S.timeLeft--;
+    const el = $("#timer");
+    if (el) {
+      const m = Math.floor(S.timeLeft / 60), s = String(S.timeLeft % 60).padStart(2, "0");
+      el.textContent = `⏱ ${m}:${s}`;
+      if (S.timeLeft <= 10) el.classList.add("text-red-500");
+    }
+    if (S.timeLeft <= 0) {
+      clearTimer();
+      onTapFillTimeout();
+    }
+  }, 1000);
+}
+
+function blanksOf() {
+  return S.blanks;
+}
+
+function renderTapFill() {
+  const tokens = tokenize(S.sentence.text);
+  const blanks = blanksOf();
+
+  const sentenceHtml = tokens.map((t, i) => {
+    if (!blanks.includes(i)) return `<span>${t.raw}</span>`;
+    const word = S.filled[i];
+    let cls = "blank-slot" + (word ? "" : " empty");
+    if (S.checked && word) cls += word.toLowerCase() === t.core.toLowerCase() ? " correct" : " wrong";
+    const display = word || "_".repeat(Math.max(3, t.core.length));
+    return `<span class="${cls}" onclick="unfill(${i})">${display}</span><span>${t.suffix}</span>`;
+  }).join(" ");
+
+  const usedWords = Object.values(S.filled);
+  const bankHtml = S.bank.map((w, bi) => {
+    const usedCount = usedWords.filter(x => x === w).length;
+    const totalCount = S.bank.filter(x => x === w).length;
+    const thisUsed = S.bank.slice(0, bi + 1).filter(x => x === w).length <= usedCount;
+    return `<button class="chip ${thisUsed ? "used" : ""}" onclick="fillWord('${w.replace(/'/g, "\\'")}')">${w}</button>`;
+  }).join("");
+
+  const allFilled = blanks.every(i => S.filled[i]);
+  const allCorrect = S.checked && blanks.every(i => S.filled[i] && S.filled[i].toLowerCase() === tokens[i].core.toLowerCase());
+
+  app.innerHTML = `
+    ${header("Step 2 · ディクテーション")}
+    ${stepDots(2)}
+    ${timerBadge()}
+    <div class="flex-1 px-6 fade-in">
+      <div class="en text-2xl leading-relaxed font-medium bg-white rounded-2xl px-5 py-6 shadow-sm border border-gray-100 mb-5">
+        ${sentenceHtml}
+      </div>
+      <button class="btn-secondary w-full mb-6 text-base" onclick="speak(S.sentence.text)">🔊 もう一回聞く</button>
+      <div class="flex flex-wrap gap-2 justify-center">${bankHtml}</div>
+    </div>
+    <div class="px-6 pb-10 pt-4">
+      ${allCorrect
+        ? `<button class="btn-primary w-full" onclick="afterTapFill()">正解！次へ</button>`
+        : `<button class="btn-primary w-full" ${allFilled ? "" : "disabled"} onclick="checkTapFill()">答え合わせ</button>`}
+    </div>`;
+}
+
+function fillWord(w) {
+  const blanks = blanksOf();
+  const empty = blanks.find(i => !S.filled[i]);
+  if (empty === undefined) return;
+  S.filled[empty] = w;
+  S.checked = false;
+  renderTapFill();
+}
+
+function unfill(i) {
+  if (!S.filled[i]) return;
+  delete S.filled[i];
+  S.checked = false;
+  renderTapFill();
+}
+
+function checkTapFill() {
+  S.checked = true;
+  const tokens = tokenize(S.sentence.text);
+  const blanks = blanksOf();
+  const ok = (i) => S.filled[i] && S.filled[i].toLowerCase() === tokens[i].core.toLowerCase();
+  const allCorrect = blanks.every(ok);
+  if (allCorrect) {
+    clearTimer();
+    speak(S.sentence.text);
+  } else {
+    blanks.forEach(i => {
+      if (S.filled[i] && !ok(i)) {
+        setTimeout(() => { delete S.filled[i]; S.checked = false; renderTapFill(); }, 1200);
+      }
+    });
+  }
+  renderTapFill();
+}
+
+function afterTapFill() {
+  clearTimer();
+  if (S.step === 2) renderStep3();
+  else renderStep5();
+}
+
+function onTapFillTimeout() {
+  const tokens = tokenize(S.sentence.text);
+  const blanks = blanksOf();
+  const missed = blanks
+    .filter(i => !S.filled[i] || S.filled[i].toLowerCase() !== tokens[i].core.toLowerCase())
+    .map(i => tokens[i].core);
+  if (missed.length === 0) { afterTapFill(); return; }
+  // ドリルは最初に詰まった3語まで（全部やらせると重すぎる）
+  S.drillQueue = [...new Set(missed)].slice(0, 3);
+  S.drillHint = 0;
+  renderMicroDrill();
+}
+
+/* ============================================================
+   マイクロドリル（救済）
+============================================================ */
+function renderMicroDrill(result = null) {
+  stopListen();
+  const word = S.drillQueue[0];
+  const meaning = S.sentence.meanings[word] || "";
+  const hints = [];
+  if (S.drillHint >= 1) hints.push(`<div class="text-gray-500 tracking-[0.35em] text-xl en">${word.toUpperCase().split("").join(" ")}</div>`);
+  if (S.drillHint >= 2) hints.push(`<div class="text-gray-500 text-lg">意味：${meaning}</div>`);
+  if (S.drillHint >= 3) hints.push(`<div class="text-indigo-500 text-base">お手本を再生したよ。続けて言ってみて</div>`);
+
+  app.innerHTML = `
+    ${header("ちょっと練習")}
+    <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
+      <p class="text-gray-400 text-sm mb-6">この単語だけ、いったん練習しよう</p>
+      <div class="en text-5xl font-bold mb-6 tracking-wide">${word}</div>
+      <div class="space-y-3 text-center mb-8 min-h-[3rem]">${hints.join("")}</div>
+      ${result === "ok"
+        ? `<div class="text-green-600 font-bold text-xl mb-6">👏 いいね！</div>`
+        : result === "ng"
+        ? `<div class="text-red-500 font-semibold mb-6">もう一回いってみよう</div>`
+        : ""}
+      <button id="drillMic" class="mic-btn mb-8" onclick="drillSpeak()">🎤</button>
+      <div class="flex gap-3 w-full">
+        <button class="btn-secondary flex-1" onclick="drillHint()">ヒント</button>
+        <button class="btn-secondary flex-1" onclick="speak('${word.replace(/'/g, "\\'")}', 0.8)">🔊 聞く</button>
+      </div>
+      ${!SR ? `<button class="mt-4 text-indigo-500 font-semibold" onclick="drillPass()">言えた（OKで進む）</button>`
+            : `<button class="mt-4 text-gray-400 text-sm" onclick="drillPass()">言えたことにして進む</button>`}
+    </div>`;
+}
+
+function drillHint() {
+  S.drillHint = Math.min(3, S.drillHint + 1);
+  if (S.drillHint === 3) speak(S.drillQueue[0], 0.8);
+  renderMicroDrill();
+}
+
+function drillSpeak() {
+  const word = S.drillQueue[0];
+  const btn = $("#drillMic");
+  btn.classList.add("recording");
+  let got = false;
+  listen(
+    (transcript) => {
+      got = true;
+      const ok = normalize(transcript).split(" ").includes(normalize(word));
+      if (ok) drillPass();
+      else renderMicroDrill("ng");
+    },
+    () => { if (!got) renderMicroDrill(SR ? "ng" : null); }
+  );
+}
+
+function drillPass() {
+  stopListen();
+  S.drillQueue.shift();
+  S.drillHint = 0;
+  if (S.drillQueue.length > 0) {
+    renderMicroDrill("ok");
+  } else {
+    // 元のステップに戻ってリトライ（正解済みはそのまま、タイマーリセット）
+    S.checked = false;
+    if (S.step === 4) {
+      S.timeLeft = TIMER_SECONDS;
+      renderSpeakFill();
+    } else {
+      S.timeLeft = DICTATION_SECONDS;
+      renderTapFill();
+    }
+    startTapFillTimer();
+  }
+}
+
+/* ============================================================
+   Step 3: Read aloud（音読チェック）
+============================================================ */
+function renderStep3(score = null, transcript = null) {
+  stopListen();
+  S.step = 3;
+  app.innerHTML = `
+    ${header("Step 3 · 音読")}
+    ${stepDots(3)}
+    <div class="flex-1 flex flex-col px-6 fade-in">
+      <div class="en text-2xl leading-relaxed font-medium bg-white rounded-2xl px-5 py-6 shadow-sm border border-gray-100 mb-4">
+        ${S.sentence.text}
+      </div>
+      <p class="text-gray-400 text-sm text-center mb-6">マイクを押して、声に出して読んでみよう<br><span class="text-xs text-gray-300">（認識した文と元の文を照合して一致率を出します）</span></p>
+      <div class="flex flex-col items-center">
+        <button id="readMic" class="mic-btn mb-6" onclick="readAloud()">🎤</button>
+        ${score !== null ? `
+          <div class="text-center mb-4">
+            <div class="text-4xl font-bold ${score >= 60 ? "text-green-600" : "text-amber-500"}">${score}%</div>
+            <div class="text-gray-400 text-sm mt-1">一致率</div>
+            ${transcript ? `<div class="text-gray-400 text-xs mt-2 en">"${transcript}"</div>` : ""}
+          </div>` : ""}
+        <button class="btn-secondary w-full mb-3" onclick="speak(S.sentence.text)">🔊 お手本を聞く</button>
+      </div>
+    </div>
+    <div class="px-6 pb-10">
+      ${score !== null && score >= 60
+        ? `<button class="btn-primary w-full" onclick="gotoSpeakFill()">いい感じ！次へ</button>`
+        : score !== null
+        ? `<div class="flex gap-3">
+             <button class="btn-secondary flex-1" onclick="renderStep3()">もう一回</button>
+             <button class="btn-primary flex-1" onclick="gotoSpeakFill()">次へ進む</button>
+           </div>`
+        : !SR
+        ? `<button class="btn-primary w-full" onclick="gotoSpeakFill()">OKで進む（音声認識なし）</button>`
+        : `<button class="btn-secondary w-full opacity-50" onclick="gotoSpeakFill()">スキップ</button>`}
+    </div>`;
+}
+
+function readAloud() {
+  const btn = $("#readMic");
+  btn.classList.add("recording");
+  let got = false;
+  listen(
+    (transcript) => {
+      got = true;
+      renderStep3(matchRate(S.sentence.text, transcript), transcript);
+    },
+    () => { if (!got) renderStep3(SR ? 0 : null); }
+  );
+}
+
+/* ============================================================
+   Step 4: 話して埋める（Speak-to-Fill）
+============================================================ */
+const SF_ROUND_LABELS = ["ウォームアップ — 穴は2つ", "半分くらい穴", "ほとんど穴", "ほぼ全部穴"];
+
+function speakFillBlanksForRound(round) {
+  const tokens = tokenize(S.sentence.text);
+  const wordIdx = tokens.map((t, i) => t.core ? i : -1).filter(i => i >= 0);
+  const kw = S.sentence.step4Blanks;
+  if (round === 1) return kw.slice(0, 2);
+  if (round === 2) return [...kw].sort((a, b) => a - b);
+  if (round === 3) {
+    const rest = wordIdx.filter(i => !kw.includes(i));
+    const extra = rest.filter((_, k) => k % 2 === 0);
+    return [...kw, ...extra].sort((a, b) => a - b);
+  }
+  return wordIdx.slice(1); // 最初の1語だけ残してほぼ全部
+}
+
+function gotoSpeakFill(round = 1) {
+  clearTimer(); stopListen();
+  S.step = 4;
+  S.sfRound = round;
+  S.blanks = speakFillBlanksForRound(round);
+  S.filled = {};
+  S.recOn = false;
+  S.timeLeft = TIMER_SECONDS;
+  renderSpeakFill();
+  startTapFillTimer();
+}
+
+function nextSfRound() {
+  clearTimer(); stopListen();
+  if (S.sfRound >= 4) { S.round = 1; renderStep5(); }
+  else gotoSpeakFill(S.sfRound + 1);
+}
+
+function renderSpeakFill() {
+  const tokens = tokenize(S.sentence.text);
+  const blanks = S.blanks;
+
+  const sentenceHtml = tokens.map((t, i) => {
+    if (!blanks.includes(i)) return `<span>${t.raw}</span>`;
+    const word = S.filled[i];
+    const cls = "blank-slot" + (word ? " correct" : " empty");
+    const display = word || "_".repeat(Math.max(3, t.core.length));
+    return `<span class="${cls}">${display}</span><span>${t.suffix}</span>`;
+  }).join(" ");
+
+  const allFilled = blanks.every(i => S.filled[i]);
+
+  app.innerHTML = `
+    ${header("Step 4 · 話して埋める")}
+    ${stepDots(4)}
+    <div class="text-center mb-2">
+      <span class="inline-block bg-indigo-50 text-indigo-600 text-sm font-bold rounded-full px-4 py-1">${S.sfRound} / 4 — ${SF_ROUND_LABELS[S.sfRound - 1]}</span>
+    </div>
+    ${allFilled ? "" : timerBadge()}
+    <div class="flex-1 flex flex-col px-6 fade-in">
+      <div class="en text-2xl leading-relaxed font-medium bg-white rounded-2xl px-5 py-6 shadow-sm border border-gray-100 mb-4">
+        ${sentenceHtml}
+      </div>
+      <p class="text-gray-400 text-sm text-center mb-5">文全体を声に出して読もう。<br>言えた単語が穴に入っていくよ</p>
+      <div class="flex flex-col items-center">
+        <div class="flex gap-3 mb-6 w-full">
+          <button class="btn-secondary flex-1" onclick="speak(S.sentence.text)">🔊 お手本</button>
+          <button class="btn-secondary flex-1" onclick="speak(S.sentence.text, 0.75)">🐢 ゆっくり</button>
+        </div>
+        ${allFilled
+          ? `<div class="text-green-600 font-bold text-xl mb-4">👏 全部言えた！</div>`
+          : SR
+          ? `<button id="speakFillMicBtn" class="mic-btn mb-4 ${S.recOn ? "recording" : ""}" onclick="toggleSpeakFillMic()">🎤</button>
+             <p class="text-gray-300 text-xs mb-2">${S.recOn ? "聞いてるよ…話して！" : "マイクを押してスタート"}</p>`
+          : `<p class="text-gray-400 text-sm mb-4">※ 音声認識非対応ブラウザです</p>`}
+      </div>
+    </div>
+    <div class="px-6 pb-10">
+      ${allFilled
+        ? `<button class="btn-primary w-full" onclick="nextSfRound()">${S.sfRound >= 4 ? "クリア！仕上げへ" : "次のラウンドへ"}</button>`
+        : !SR
+        ? `<button class="btn-primary w-full" onclick="nextSfRound()">OKで進む（音声認識なし）</button>`
+        : `<button class="btn-secondary w-full opacity-50" onclick="nextSfRound()">スキップ</button>`}
+    </div>`;
+}
+
+function toggleSpeakFillMic() {
+  if (S.recOn) { S.recOn = false; stopListen(); renderSpeakFill(); return; }
+  if (!SR) return;
+  S.recOn = true;
+  const rec = new SR();
+  rec.lang = "en-US";
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.onresult = (e) => {
+    let transcript = "";
+    for (const r of e.results) transcript += r[0].transcript + " ";
+    applySpeakFill(transcript);
+  };
+  rec.onend = () => { S.recOn = false; renderSpeakFill(); };
+  rec.onerror = () => { S.recOn = false; renderSpeakFill(); };
+  try { rec.start(); activeRec = rec; } catch (_) { S.recOn = false; }
+  renderSpeakFill();
+}
+
+function applySpeakFill(transcript) {
+  const tokens = tokenize(S.sentence.text);
+  const words = normalize(transcript).split(" ").filter(Boolean);
+  S.filled = {};
+  let p = 0;
+  for (const i of S.blanks) {
+    const target = tokens[i].core.toLowerCase();
+    const found = words.indexOf(target, p);
+    if (found >= 0) { S.filled[i] = tokens[i].core; p = found + 1; }
+  }
+  const allFilled = S.blanks.every(i => S.filled[i]);
+  if (allFilled) { clearTimer(); stopListen(); S.recOn = false; }
+  renderSpeakFill();
+}
+
+/* ============================================================
+   Step 5: オーバーラッピング → シャドーイング
+============================================================ */
+const STEP5_ROUNDS = [
+  { type: "overlap", label: "オーバーラッピング", desc: "全文を見ながら、音声にぴったり重ねて話す" },
+  { type: "shadow",  label: "シャドーイング",     desc: "仕上げ。文は見ずに、音声を追いかけて話す" },
+];
+
+function renderStep5(score = null) {
+  stopListen();
+  S.step = 5;
+  const round = S.round || 1;
+  const r = STEP5_ROUNDS[round - 1];
+
+  const body = r.type === "overlap"
+    ? `<div class="en text-2xl leading-relaxed font-medium bg-white rounded-2xl px-5 py-6 shadow-sm border border-gray-100 mb-4">
+         ${S.sentence.text}
+       </div>`
+    : `<div class="bg-white rounded-2xl px-5 py-10 shadow-sm border border-gray-100 mb-4 text-center">
+         <div class="text-5xl mb-3">🎧</div>
+         <div class="text-gray-400 text-sm">文は隠したよ。音だけを頼りに。</div>
+       </div>`;
+
+  app.innerHTML = `
+    ${header("Step 5 · 仕上げ")}
+    ${stepDots(5)}
+    <div class="text-center mb-2">
+      <span class="inline-block bg-indigo-50 text-indigo-600 text-sm font-bold rounded-full px-4 py-1">${round} / ${STEP5_ROUNDS.length} — ${r.label}</span>
+    </div>
+    <div class="flex-1 flex flex-col px-6 fade-in">
+      ${body}
+      <p class="text-gray-400 text-sm text-center mb-5">${r.desc}</p>
+      <div class="flex flex-col items-center">
+        <div class="flex gap-3 mb-6 w-full">
+          <button class="btn-secondary flex-1" onclick="speak(S.sentence.text)">🔊 再生</button>
+          <button class="btn-secondary flex-1" onclick="speak(S.sentence.text, 0.75)">🐢 ゆっくり</button>
+        </div>
+        ${r.type === "shadow" && SR ? `
+          <button id="shadowMic" class="mic-btn mb-3" onclick="shadowSpeak()">🎤</button>
+          <p class="text-gray-300 text-xs mb-3">覚えた文を言ってセルフチェックもできるよ</p>` : ""}
+        ${score !== null ? `
+          <div class="text-center mb-3">
+            <div class="text-3xl font-bold ${score >= 60 ? "text-green-600" : "text-amber-500"}">${score}%</div>
+            <div class="text-gray-400 text-xs">一致率</div>
+          </div>` : ""}
+      </div>
+    </div>
+    <div class="px-6 pb-10">
+      <button class="btn-primary w-full" onclick="nextRound()">${round >= STEP5_ROUNDS.length ? "セッション完了！" : "できた、次へ"}</button>
+    </div>`;
+}
+
+function shadowSpeak() {
+  const btn = $("#shadowMic");
+  btn.classList.add("recording");
+  let got = false;
+  listen(
+    (transcript) => { got = true; renderStep5(matchRate(S.sentence.text, transcript)); },
+    () => { if (!got) renderStep5(SR ? 0 : null); }
+  );
+}
+
+function nextRound() {
+  stopListen();
+  if (S.round >= STEP5_ROUNDS.length) {
+    finishSession();
+  } else {
+    S.round++;
+    renderStep5();
+  }
+}
+
+/* ============================================================
+   セッション完了 / 1日完了
+============================================================ */
+function finishSession() {
+  S.round = 1;
+  const p = loadProgress();
+  if (!p.done.includes(S.sentence.id)) {
+    p.done.push(S.sentence.id);
+    p.words += wordCount(S.sentence.text);
+    saveProgress(p);
+  }
+  if (p.words >= DAILY_GOAL) renderDayComplete(p);
+  else renderSessionComplete(p);
+}
+
+function renderSessionComplete(p) {
+  app.innerHTML = `
+    ${header("", false)}
+    <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
+      <div class="text-6xl mb-6">🎉</div>
+      <div class="text-2xl font-bold mb-2">1本クリア！</div>
+      <p class="text-gray-500 mb-8">今日のワード数：<span class="font-bold text-indigo-600">${p.words}</span> / ${DAILY_GOAL}</p>
+      <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-10 max-w-[16rem]">
+        <div class="h-full bg-indigo-500 rounded-full" style="width:${Math.min(100, Math.round(p.words / DAILY_GOAL * 100))}%"></div>
+      </div>
+      <button class="btn-primary w-full" onclick="goHome()">次のセンテンスへ</button>
+    </div>`;
+}
+
+function renderDayComplete(p) {
+  app.innerHTML = `
+    ${header("", false)}
+    <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
+      <div class="text-6xl mb-6">🌙</div>
+      <div class="text-2xl font-bold mb-3">お疲れ様、また明日</div>
+      <p class="text-gray-500 text-center leading-relaxed mb-10">今日は ${p.words} 語やりきった。<br>続けることがいちばん大事。</p>
+      <button class="btn-secondary w-full" onclick="goHome()">ホームに戻る</button>
+    </div>`;
+}
+
+/* ============================================================
+   起動
+============================================================ */
+goHome();
+</script>
+</body>
+</html>
