@@ -591,14 +591,19 @@ function listen(onResult, onEnd) {
   activeRec = rec;
   return rec;
 }
+// 再描画含む頻繁な呼び出し用：SR(Web Speech API)のみ止める。状態は変えない
 function stopListen() {
   if (activeRec) { try { activeRec.stop(); } catch (_) {} activeRec = null; }
-  // MediaRecorder（Cloud STT用）も止める
+}
+
+// 画面切り替え用：SR + MediaRecorder + 状態 を全部リセット
+function stopAllMic() {
+  stopListen();
   if (mediaRecorder && mediaRecorder.state !== "inactive") {
     try { mediaRecorder.stop(); } catch (_) {}
     if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-    mediaRecorder = null; mediaStream = null;
   }
+  mediaRecorder = null; mediaStream = null;
   S.recOn = false;
   S.transcribing = false;
 }
@@ -674,7 +679,7 @@ function header(title, showBack = true, showSkip = true) {
 
 /* 開発用：現在のStepを飛ばして次画面へ */
 function devSkip() {
-  clearTimer(); stopListen(); stopAudio();
+  clearTimer(); stopAllMic(); stopAudio();
   const step = S.step;
   if (step === 1) gotoTapFill();
   else if (step === 2) gotoMeaning();
@@ -707,7 +712,7 @@ function timerBadge() {
    ホーム（コレクション一覧）
 ============================================================ */
 function goHome() {
-  clearTimer(); stopListen(); stopAudio();
+  clearTimer(); stopAllMic(); stopAudio();
   S.currentCollectionId = null;
   const p = loadProgress();
   const goal = settings.goal || 30;
@@ -767,7 +772,7 @@ function openCollection(id) {
 }
 
 function renderCollection() {
-  clearTimer(); stopListen(); stopAudio();
+  clearTimer(); stopAllMic(); stopAudio();
   const c = collections.find(x => x.id === S.currentCollectionId);
   if (!c) { goHome(); return; }
   const p = loadProgress();
