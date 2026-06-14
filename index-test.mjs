@@ -101,6 +101,40 @@ ok('Step4 R1', (await page.textContent('#app')).includes('1 / 4'));
 const r1 = await page.evaluate(() => S.blanks.length);
 ok(`R1 穴2つ (${r1})`, r1 === 2);
 
+// === Step 4 新機能テスト ===
+console.log('4b. Step 4 リアルタイム＆peek');
+// R1で半分だけ読んだ状態 → heardに入って既出単語が緑になることを確認
+await page.evaluate(() => {
+  const half = S.sentence.text.split(' ').slice(0, 5).join(' ');
+  applySpeakFill(half);
+});
+await page.waitForTimeout(200);
+const heardSize = await page.evaluate(() => S.heard.size);
+ok(`認識単語が蓄積 (${heardSize})`, heardSize >= 3);
+const greenCount = await page.evaluate(() => document.querySelectorAll('.word-heard').length);
+ok(`非空白の既読単語が緑 (${greenCount})`, greenCount >= 1);
+
+// peek機能：空白タップで答えチラ見
+await page.evaluate(() => {
+  S.filled = {}; S.heard = new Set(); S.peeked = {};
+  renderSpeakFill();
+  const firstBlank = S.blanks.find(i => !S.filled[i]);
+  peekBlank(firstBlank);
+});
+await page.waitForTimeout(200);
+const peekCount = await page.evaluate(() => Object.keys(S.peeked).length);
+ok(`peek状態が記録 (${peekCount})`, peekCount === 1);
+ok('peekはまだ通過させない', !(await page.textContent('#app')).includes('全部言えた'));
+// peekした空白を発音 → 緑になりpeek解除
+await page.evaluate(() => {
+  const i = parseInt(Object.keys(S.peeked)[0]);
+  const w = tokenize(S.sentence.text)[i].core;
+  applySpeakFill(w);
+});
+await page.waitForTimeout(200);
+const peekAfter = await page.evaluate(() => Object.keys(S.peeked).length);
+ok('発音でpeek解除', peekAfter === 0);
+
 // 各ラウンドを音声入力シミュレートでクリア
 for (let r = 1; r <= 4; r++) {
   await page.evaluate(() => applySpeakFill(S.sentence.text));
@@ -145,6 +179,13 @@ await page.evaluate(() => {
 await page.waitForTimeout(200);
 const afterDel = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_sentences')).length);
 ok(`削除で ${before}→${afterDel}`, afterDel === before - 1);
+
+// === 開発スキップ ===
+console.log('7. 開発スキップボタン');
+await page.evaluate(() => startSession(sentences[1].id));
+await page.waitForTimeout(200);
+ok('Step1からskipでStep2へ', (await page.evaluate(() => { devSkip(); return S.step; })) === 2);
+ok('Step2からskipで意味画面へ', (await page.evaluate(() => { devSkip(); return S.step; })) === 2.5);
 
 await page.screenshot({ path: 'shot-index-home.png' });
 await browser.close();

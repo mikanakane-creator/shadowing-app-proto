@@ -14,22 +14,40 @@
     background: #FAFAF8;
     color: #2D2D2D;
     -webkit-tap-highlight-color: transparent;
+    min-height: 100dvh;
   }
   .en { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Helvetica, Arial, sans-serif; }
-  .btn-primary {
-    background: var(--accent); color: #fff;
-    border-radius: 1rem; padding: 0.9rem 1.5rem;
+  .btn-primary, .btn-secondary {
+    border-radius: 1rem;
+    padding: 1.1rem 1.5rem;
+    min-height: 56px;
     font-size: 1.05rem; font-weight: 600;
     transition: opacity .15s, transform .05s;
+    touch-action: manipulation;
   }
-  .btn-primary:active { transform: scale(0.97); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-secondary { background: #EFEEEA; color: #2D2D2D; }
+  .btn-primary:active, .btn-secondary:active { transform: scale(0.97); }
   .btn-primary:disabled { opacity: 0.35; }
-  .btn-secondary {
-    background: #EFEEEA; color: #2D2D2D;
-    border-radius: 1rem; padding: 0.9rem 1.5rem;
-    font-size: 1.05rem; font-weight: 600;
+  /* 画面下の最終ボタン領域（iPhone Safe Areaを尊重して押せる空間を確保） */
+  .bottom-bar {
+    padding: 0.5rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom));
   }
-  .btn-secondary:active { transform: scale(0.97); }
+  .dev-skip {
+    color: #C9C6BE; font-size: 0.7rem;
+    padding: 0.3rem 0.55rem; border-radius: 6px;
+    border: 1px dashed #D7D5CE; line-height: 1;
+  }
+  .dev-skip:active { background: #EFEEEA; }
+  .word-heard {
+    color: #16A34A;
+    transition: color .25s ease;
+  }
+  .blank-slot.peek {
+    color: #B0AEA8;
+    border-bottom-style: dashed;
+    opacity: 0.85;
+  }
   .chip {
     background: #fff; border: 1.5px solid #E2E0DA;
     border-radius: 0.9rem; padding: 0.55rem 1rem;
@@ -191,7 +209,7 @@ function autoDummies(text) {
    音声（OpenAI / Google Gemini TTS + IndexedDBキャッシュ
    → ブラウザTTSフォールバック）
 ============================================================ */
-const GOOGLE_TTS_MODEL = "gemini-3.1-flash-tts-preview";
+const GOOGLE_TTS_MODELS = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-pro-preview-tts"];
 const GOOGLE_TEXT_MODEL = "gemini-2.5-flash";
 
 function aiKey() { return settings.provider === "google" ? settings.googleKey : settings.apiKey; }
@@ -226,8 +244,28 @@ async function fetchTTS(text) {
   return await res.blob();
 }
 
+// 動いたモデルを覚えておいて、以降はそれを使う（毎回fallback巡回しない）
+let googleTtsWorkingModel = null;
+
 async function fetchGoogleTTS(text) {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GOOGLE_TTS_MODEL}:generateContent?key=${encodeURIComponent(settings.googleKey)}`, {
+  const candidates = googleTtsWorkingModel ? [googleTtsWorkingModel] : GOOGLE_TTS_MODELS;
+  let lastErr = null;
+  for (const model of candidates) {
+    try {
+      const blob = await callGoogleTTS(model, text);
+      googleTtsWorkingModel = model;
+      return blob;
+    } catch (e) {
+      lastErr = e;
+      // モデル未提供以外のエラー（権限・キー・課金など）は即fail。fallback巡回は意味ない
+      if (!/not.found|404|unsupported|invalid.model/i.test(e.message)) throw e;
+    }
+  }
+  throw lastErr || new Error("Gemini TTS: 全モデル失敗");
+}
+
+async function callGoogleTTS(model, text) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(settings.googleKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -238,10 +276,16 @@ async function fetchGoogleTTS(text) {
       }
     })
   });
-  if (!res.ok) throw new Error("Gemini TTS API error: " + res.status);
+  if (!res.ok) {
+    const body = await res.text();
+    const detail = (() => {
+      try { return JSON.parse(body).error?.message || body; } catch { return body; }
+    })().slice(0, 200);
+    throw new Error(`Gemini TTS ${res.status} (${model}): ${detail}`);
+  }
   const data = await res.json();
   const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!part) throw new Error("Gemini TTS: no audio in response");
+  if (!part) throw new Error(`Gemini TTS (${model}): 応答に音声データなし`);
   const rate = parseInt((part.inlineData.mimeType.match(/rate=(\d+)/) || [])[1]) || 24000;
   return pcmToWav(part.inlineData.data, rate);
 }
@@ -296,13 +340,14 @@ function toast(msg) {
   if (!el) {
     el = document.createElement("div");
     el.id = "toast";
-    el.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2D2D2D;color:#fff;padding:10px 18px;border-radius:12px;font-size:13px;z-index:50;max-width:90%;transition:opacity .3s;";
+    el.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2D2D2D;color:#fff;padding:12px 18px;border-radius:12px;font-size:12px;line-height:1.5;z-index:50;max-width:92%;transition:opacity .3s;word-break:break-word;cursor:pointer;";
+    el.onclick = () => { el.style.opacity = "0"; };
     document.body.appendChild(el);
   }
   el.textContent = msg;
   el.style.opacity = "1";
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { el.style.opacity = "0"; }, 4000);
+  toast._t = setTimeout(() => { el.style.opacity = "0"; }, 6000);
 }
 
 async function speak(text, rate = 1.0) {
@@ -383,6 +428,8 @@ let S = {
   round: 1,
   sfRound: 1,
   recOn: false,
+  heard: new Set(),   // Step 4: 音声認識で読めた単語（小文字core）
+  peeked: {},         // Step 4: タップで答えをチラ見した空白 {tokenIndex: true}
 };
 
 let timerInterval = null;
@@ -393,13 +440,32 @@ function clearTimer() {
 /* ============================================================
    画面骨格
 ============================================================ */
-function header(title, showBack = true) {
+function header(title, showBack = true, showSkip = true) {
   return `
   <div class="flex items-center px-5 pt-6 pb-3">
-    ${showBack ? `<button onclick="goHome()" class="text-gray-400 text-2xl leading-none mr-3">‹</button>` : `<span class="w-6"></span>`}
+    ${showBack ? `<button onclick="goHome()" class="text-gray-400 text-2xl leading-none mr-3 px-2">‹</button>` : `<span class="w-8"></span>`}
     <div class="flex-1 text-center font-semibold text-gray-500 text-sm tracking-wide">${title}</div>
-    <span class="w-6"></span>
+    ${showSkip ? `<button onclick="devSkip()" class="dev-skip">skip ›</button>` : `<span class="w-8"></span>`}
   </div>`;
+}
+
+/* 開発用：現在のStepを飛ばして次画面へ */
+function devSkip() {
+  clearTimer(); stopListen(); stopAudio();
+  const step = S.step;
+  if (step === 1) gotoTapFill();
+  else if (step === 2) gotoMeaning();
+  else if (step === 2.5) renderStep3();
+  else if (step === 3) gotoSpeakFill(1);
+  else if (step === 4) {
+    if (S.sfRound >= 4) { S.round = 1; renderStep5(); }
+    else gotoSpeakFill(S.sfRound + 1);
+  }
+  else if (step === 5) {
+    if (S.round >= STEP5_ROUNDS.length) finishSession();
+    else { S.round++; renderStep5(); }
+  }
+  else goHome();
 }
 function stepDots(current) {
   let dots = "";
@@ -444,7 +510,7 @@ function goHome() {
       <div class="flex-1 text-center font-semibold text-gray-500 text-sm tracking-wide">シャドーイング（仮）</div>
       <button onclick="renderSettings()" class="w-8 text-xl text-gray-400">⚙️</button>
     </div>
-    <div class="px-5 pb-10 flex-1">
+    <div class="px-5 flex-1" style="padding-bottom: calc(2.5rem + env(safe-area-inset-bottom))">
       <div class="bg-white rounded-2xl px-5 py-4 mb-6 shadow-sm border border-gray-100">
         <div class="flex items-end justify-between mb-2">
           <span class="text-sm font-semibold text-gray-500">今日のワード数</span>
@@ -478,7 +544,7 @@ function removeSentence(id) {
 ============================================================ */
 function renderAddSentence(status = "") {
   app.innerHTML = `
-    ${header("文を追加")}
+    ${header("文を追加", true, false)}
     <div class="flex-1 px-6 fade-in">
       <p class="text-gray-400 text-sm mb-3 leading-relaxed">英文を貼り付けてね（1行＝1センテンス）。<br>TEDやYouTubeの字幕からのコピペもOK。</p>
       <textarea id="addText" rows="6" class="en mb-4" placeholder="She said she would come back."></textarea>
@@ -487,7 +553,7 @@ function renderAddSentence(status = "") {
         : `<p class="text-xs text-gray-400 mb-4">APIキー未設定のため、日本語訳なしで追加されます（設定からキーを入れると自動生成）</p>`}
       ${status ? `<p class="text-sm text-indigo-500 font-semibold mb-4">${status}</p>` : ""}
     </div>
-    <div class="px-6 pb-10">
+    <div class="bottom-bar">
       <button id="addBtn" class="btn-primary w-full" onclick="addSentences()">追加する</button>
     </div>`;
 }
@@ -568,7 +634,7 @@ function renderSettings(saved = false) {
   const voices = isGoogle ? GOOGLE_VOICES : OPENAI_VOICES;
   const curVoice = activeVoice();
   app.innerHTML = `
-    ${header("設定")}
+    ${header("設定", true, false)}
     <div class="flex-1 px-6 fade-in">
       <label class="block text-sm font-semibold text-gray-500 mb-2">AI音声プロバイダ</label>
       <select id="setProvider" class="mb-5" onchange="changeProvider(this.value)">
@@ -593,7 +659,7 @@ function renderSettings(saved = false) {
 
       ${saved ? `<p class="text-green-600 font-semibold text-sm mb-4">✓ 保存しました</p>` : ""}
     </div>
-    <div class="px-6 pb-10">
+    <div class="bottom-bar">
       <button class="btn-primary w-full" onclick="saveSettingsFromUI()">保存</button>
     </div>`;
 }
@@ -647,7 +713,7 @@ function renderStep1() {
       <button class="btn-primary w-full mb-3" onclick="speak(S.sentence.text)">▶︎ 再生</button>
       <button class="btn-secondary w-full" onclick="speak(S.sentence.text, 0.75)">🐢 ゆっくり再生</button>
     </div>
-    <div class="px-8 pb-10">
+    <div class="bottom-bar">
       <button class="btn-primary w-full" onclick="gotoTapFill()">次へ</button>
     </div>`;
   speak(S.sentence.text);
@@ -723,7 +789,7 @@ function renderTapFill() {
       <button class="btn-secondary w-full mb-6 text-base" onclick="speak(S.sentence.text)">🔊 もう一回聞く</button>
       <div class="flex flex-wrap gap-2 justify-center">${bankHtml}</div>
     </div>
-    <div class="px-6 pb-10 pt-4">
+    <div class="bottom-bar">
       ${allCorrect
         ? `<button class="btn-primary w-full" onclick="afterTapFill()">正解！次へ</button>`
         : `<button class="btn-primary w-full" ${allFilled ? "" : "disabled"} onclick="checkTapFill()">答え合わせ</button>`}
@@ -795,6 +861,7 @@ async function gotoMeaning() {
 }
 
 function renderMeaning(loading = false) {
+  S.step = 2.5;
   const s = S.sentence;
   const meanings = Object.entries(s.meanings || {});
   app.innerHTML = `
@@ -820,7 +887,7 @@ function renderMeaning(loading = false) {
       </div>` : ""}
       <button class="btn-secondary w-full text-base" onclick="speak(S.sentence.text)">🔊 意味を思い浮かべながら聞く</button>
     </div>
-    <div class="px-6 pb-10 pt-4">
+    <div class="bottom-bar">
       <button class="btn-primary w-full" ${loading ? "disabled" : ""} onclick="renderStep3()">意味OK、音読へ</button>
     </div>`;
 }
@@ -850,7 +917,7 @@ function renderMicroDrill(result = null) {
   if (S.drillHint >= 3) hints.push(`<div class="text-indigo-500 text-base">お手本を再生したよ。続けて言ってみて</div>`);
 
   app.innerHTML = `
-    ${header("ちょっと練習")}
+    ${header("ちょっと練習", true, false)}
     <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
       <p class="text-gray-400 text-sm mb-6">この単語だけ、いったん練習しよう</p>
       <div class="en text-5xl font-bold mb-6 tracking-wide">${word}</div>
@@ -936,7 +1003,7 @@ function renderStep3(score = null, transcript = null) {
         <button class="btn-secondary w-full mb-3" onclick="speak(S.sentence.text)">🔊 お手本を聞く</button>
       </div>
     </div>
-    <div class="px-6 pb-10">
+    <div class="bottom-bar">
       ${score !== null && score >= 60
         ? `<button class="btn-primary w-full" onclick="gotoSpeakFill()">いい感じ！次へ</button>`
         : score !== null
@@ -988,6 +1055,8 @@ function gotoSpeakFill(round = 1) {
   S.sfRound = round;
   S.blanks = speakFillBlanksForRound(round);
   S.filled = {};
+  S.heard = new Set();
+  S.peeked = {};
   S.recOn = false;
   S.timeLeft = TIMER_SECONDS;
   renderSpeakFill();
@@ -1003,13 +1072,30 @@ function nextSfRound() {
 function renderSpeakFill() {
   const tokens = tokenize(S.sentence.text);
   const blanks = S.blanks;
+  const heard = S.heard || new Set();
+  const peeked = S.peeked || {};
+  const peekCount = Object.keys(peeked).filter(i => !S.filled[i]).length;
 
   const sentenceHtml = tokens.map((t, i) => {
-    if (!blanks.includes(i)) return `<span>${t.raw}</span>`;
+    const coreLower = t.core ? t.core.toLowerCase() : "";
+    if (!blanks.includes(i)) {
+      // 空白でない単語：読めたら緑にハイライト
+      const isHeard = coreLower && heard.has(coreLower);
+      return `<span class="${isHeard ? "word-heard" : ""}">${t.raw}</span>`;
+    }
+    // 空白の単語
     const word = S.filled[i];
-    const cls = "blank-slot" + (word ? " correct" : " empty");
-    const display = word || "_".repeat(Math.max(3, t.core.length));
-    return `<span class="${cls}">${display}</span><span>${t.suffix}</span>`;
+    if (word) {
+      // 読めた → 緑filled
+      return `<span class="blank-slot correct">${word}</span><span>${t.suffix}</span>`;
+    }
+    if (peeked[i]) {
+      // チラ見中 → 薄グレーで答え表示
+      return `<span class="blank-slot peek" onclick="unpeekBlank(${i})">${t.core}</span><span>${t.suffix}</span>`;
+    }
+    // 未着手 → タップでチラ見可能
+    const display = "_".repeat(Math.max(3, t.core.length));
+    return `<span class="blank-slot empty" onclick="peekBlank(${i})">${display}</span><span>${t.suffix}</span>`;
   }).join(" ");
 
   const allFilled = blanks.every(i => S.filled[i]);
@@ -1025,7 +1111,10 @@ function renderSpeakFill() {
       <div class="en text-2xl leading-relaxed font-medium bg-white rounded-2xl px-5 py-6 shadow-sm border border-gray-100 mb-4">
         ${sentenceHtml}
       </div>
-      <p class="text-gray-400 text-sm text-center mb-5">文全体を声に出して読もう。<br>言えた単語が穴に入っていくよ</p>
+      <p class="text-gray-400 text-xs text-center mb-5 leading-relaxed">
+        言えた単語が緑になるよ。<br>
+        ${peekCount > 0 ? `<span class="text-indigo-500">${peekCount}個チラ見中。発音すれば緑になって通過できる</span>` : `思い出せない空白はタップでチラ見できる`}
+      </p>
       <div class="flex flex-col items-center">
         <div class="flex gap-3 mb-6 w-full">
           <button class="btn-secondary flex-1" onclick="speak(S.sentence.text)">🔊 お手本</button>
@@ -1039,7 +1128,7 @@ function renderSpeakFill() {
           : `<p class="text-gray-400 text-sm mb-4">※ 音声認識非対応ブラウザです</p>`}
       </div>
     </div>
-    <div class="px-6 pb-10">
+    <div class="bottom-bar">
       ${allFilled
         ? `<button class="btn-primary w-full" onclick="nextSfRound()">${S.sfRound >= 4 ? "クリア！仕上げへ" : "次のラウンドへ"}</button>`
         : !SR
@@ -1070,15 +1159,32 @@ function toggleSpeakFillMic() {
 function applySpeakFill(transcript) {
   const tokens = tokenize(S.sentence.text);
   const words = normalize(transcript).split(" ").filter(Boolean);
+  // 認識した全単語をheardに蓄積（非空白部分のハイライトに使う）
+  for (const w of words) S.heard.add(w);
+  // 空白の埋まり判定：先頭から順番に拾う（既存ロジック踏襲）
   S.filled = {};
   let p = 0;
   for (const i of S.blanks) {
     const target = tokens[i].core.toLowerCase();
     const found = words.indexOf(target, p);
-    if (found >= 0) { S.filled[i] = tokens[i].core; p = found + 1; }
+    if (found >= 0) {
+      S.filled[i] = tokens[i].core;
+      delete S.peeked[i];   // 発音できたらpeek解除
+      p = found + 1;
+    }
   }
   const allFilled = S.blanks.every(i => S.filled[i]);
   if (allFilled) { clearTimer(); stopListen(); S.recOn = false; }
+  renderSpeakFill();
+}
+
+function peekBlank(i) {
+  if (!S.blanks.includes(i) || S.filled[i]) return;
+  S.peeked[i] = true;
+  renderSpeakFill();
+}
+function unpeekBlank(i) {
+  delete S.peeked[i];
   renderSpeakFill();
 }
 
@@ -1129,7 +1235,7 @@ function renderStep5(score = null) {
           </div>` : ""}
       </div>
     </div>
-    <div class="px-6 pb-10">
+    <div class="bottom-bar">
       <button class="btn-primary w-full" onclick="nextRound()">${round >= STEP5_ROUNDS.length ? "セッション完了！" : "できた、次へ"}</button>
     </div>`;
 }
@@ -1172,7 +1278,7 @@ function finishSession() {
 
 function renderSessionComplete(p, goal) {
   app.innerHTML = `
-    ${header("", false)}
+    ${header("", false, false)}
     <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
       <div class="text-6xl mb-6">🎉</div>
       <div class="text-2xl font-bold mb-2">1本クリア！</div>
@@ -1186,7 +1292,7 @@ function renderSessionComplete(p, goal) {
 
 function renderDayComplete(p) {
   app.innerHTML = `
-    ${header("", false)}
+    ${header("", false, false)}
     <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
       <div class="text-6xl mb-6">🌙</div>
       <div class="text-2xl font-bold mb-3">お疲れ様、また明日</div>
