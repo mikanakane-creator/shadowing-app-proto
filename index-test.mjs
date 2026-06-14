@@ -65,7 +65,7 @@ console.log('4. コレクション追加');
 await page.click('text=＋ 追加');
 await page.waitForTimeout(200);
 await page.fill('#addTitle', 'テスト集');
-await page.fill('#addText', 'The weather has been really nice this week. Tomorrow is going to be sunny too. I love sunny days.');
+await page.fill('#addText', 'The weather has been really nice this week. Tomorrow is going to be sunny enough. I really love sunny days outside.');
 await page.click('#addBtn');
 await page.waitForTimeout(400);
 const colNow = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_collections')));
@@ -73,7 +73,7 @@ ok('コレクション3つに', colNow.length === 3);
 const newSents = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_sentences')));
 const testColId = colNow[colNow.length - 1].id;
 const newColSents = newSents.filter(s => s.collectionId === testColId);
-ok(`新コレクションに3文 (${newColSents.length})`, newColSents.length === 3);
+ok(`新コレクションに均等化後の文 (${newColSents.length})`, newColSents.length >= 2);
 ok('自動キーワードあり', newColSents[0].kw && newColSents[0].kw.length >= 2);
 
 await page.evaluate(() => goHome());

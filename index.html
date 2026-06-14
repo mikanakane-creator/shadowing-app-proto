@@ -98,6 +98,11 @@ const DICTATION_SECONDS = 90;    // Step 2（全文ディクテーション）
 const DUMMY_POOL = ["really", "never", "always", "people", "things", "maybe", "still", "right", "going", "want"];
 const STOPWORDS = new Set(["the","a","an","is","are","was","were","be","been","being","i","you","he","she","it","we","they","of","to","in","on","at","and","but","or","this","that","these","those","what","do","does","did","have","has","had","my","your","his","her","its","our","their","me","him","them","us","for","with","about","as","so","not","no","yes","how","when","where","why","who","am","will","would","can","could","should","there","here","from","by","up","down","out","if","then","than","just","very"]);
 
+// 文の均等化用：目標 ~12語、5語未満は結合候補、20語超は分割候補
+const CHUNK_TARGET = 12;
+const CHUNK_MIN = 5;
+const CHUNK_MAX = 20;
+
 const SEED_COLLECTIONS = [
   { id: "c-sample", title: "お試し3文", emoji: "🌱", createdAt: "2026-06-14" },
   { id: "c-matt-cutts-30days", title: "30日間チャレンジ (Matt Cutts / TED)", emoji: "🎯", createdAt: "2026-06-14" },
@@ -163,14 +168,7 @@ const SEED_SENTENCES = [
     kw: [1, 3, 4, 5, 8, 9, 12], dummies: ["could", "told"],
     meanings: { "would": "〜するつもりだった", "back": "戻って", "heard": "聞いた", "said": "言った", "come": "来る", "haven't": "〜していない", "since": "それ以来" }
   },
-  // c-matt-cutts-30days: id 100+番台、ja等は空 → 開いたタイミングで自動生成
-  ...MATT_CUTTS_TEXTS.map((text, i) => ({
-    id: 100 + i + 1,
-    collectionId: "c-matt-cutts-30days",
-    text,
-    ja: "",
-    meanings: {},
-  })),
+  // c-matt-cutts-30days はチャンク化が必要なので getMattCuttsSeed() で動的展開
 ];
 
 /* ============================================================
@@ -208,6 +206,17 @@ let collections = loadCollections();
 function loadSentences() {
   let arr = [];
   try {
+    // Matt Cuttsシードのバージョンが上がったら既存文を削除して再シード（均等化版に差し替え）
+    const MATT_V = 2;
+    if (parseInt(localStorage.getItem("sw_matt_v") || "1") < MATT_V) {
+      const old = JSON.parse(localStorage.getItem("sw_sentences") || "[]");
+      if (Array.isArray(old)) {
+        localStorage.setItem("sw_sentences", JSON.stringify(old.filter(s => s.collectionId !== "c-matt-cutts-30days")));
+      }
+      localStorage.setItem("sw_matt_v", String(MATT_V));
+    }
+  } catch (_) {}
+  try {
     const raw = JSON.parse(localStorage.getItem("sw_sentences") || "null");
     if (Array.isArray(raw)) arr = raw;
   } catch (_) {}
@@ -216,6 +225,10 @@ function loadSentences() {
   // シード文でまだ無いID を追加
   const seen = new Set(arr.map(s => s.id));
   for (const s of SEED_SENTENCES) {
+    if (!seen.has(s.id)) arr.push(s);
+  }
+  // Matt Cutts は chunkSentences で動的にチャンク化（TDZ回避のため遅延展開）
+  for (const s of getMattCuttsSeed()) {
     if (!seen.has(s.id)) arr.push(s);
   }
   // kw / dummies / meanings の補完（シードでもユーザ追加でも）
@@ -269,6 +282,16 @@ function shuffle(arr) {
   return a;
 }
 function wordCount(text) { return tokenize(text).filter(t => t.core).length; }
+
+function getMattCuttsSeed() {
+  return chunkSentences(MATT_CUTTS_TEXTS).map((text, i) => ({
+    id: 100 + i + 1,
+    collectionId: "c-matt-cutts-30days",
+    text,
+    ja: "",
+    meanings: {},
+  }));
+}
 
 function autoKeywords(text) {
   const tokens = tokenize(text);
@@ -579,7 +602,11 @@ function todayKey() {
 function loadProgress() {
   try {
     const p = JSON.parse(localStorage.getItem("sw_progress") || "null");
-    if (p && p.date === todayKey()) return p;
+    if (p && p.date === todayKey()) {
+      // 削除された文IDが done に残ってる場合は掃除
+      p.done = (p.done || []).filter(id => sentences.some(s => s.id === id));
+      return p;
+    }
   } catch (_) {}
   return { date: todayKey(), words: 0, done: [] };
 }
@@ -822,6 +849,53 @@ async function enrichSentence(text, kwWords) {
   return JSON.parse(data.choices[0].message.content);
 }
 
+function splitLong(text) {
+  // 「, so / , but / , and」のように接続詞で分割（接続詞は次の節の先頭に残す）
+  let parts = text.split(/(?<=,)\s+(?=(?:so|but|and|or|because|when|while|which|that|where|if)\b)/i);
+  if (parts.length === 1) parts = text.split(/(?<=,)\s+/);   // 接続詞なし → 単純にコンマ
+  if (parts.length === 1) parts = text.split(/(?<=[;:])\s+/); // ; :
+  if (parts.length === 1) parts = text.split(/\s+--\s+|\s+—\s+/);  // -- や — の挿入句
+  if (parts.length === 1) return [text];
+  // 各 part を target 語くらいに結合し直す
+  const out = [];
+  let buf = "";
+  for (const p of parts) {
+    const cand = buf ? buf + " " + p : p;
+    if (buf && wordCount(cand) > CHUNK_MAX) {
+      out.push(buf);
+      buf = p;
+    } else {
+      buf = cand;
+      if (wordCount(buf) >= CHUNK_TARGET) { out.push(buf); buf = ""; }
+    }
+  }
+  if (buf) out.push(buf);
+  return out;
+}
+
+function chunkSentences(lines) {
+  // ステップ1: 長文を分割
+  const expanded = [];
+  for (const l of lines) {
+    if (wordCount(l) > CHUNK_MAX) expanded.push(...splitLong(l));
+    else expanded.push(l);
+  }
+  // ステップ2: 短文を前後と結合
+  const out = [];
+  for (const l of expanded) {
+    if (out.length && wordCount(l) < CHUNK_MIN && wordCount(out[out.length - 1]) + wordCount(l) <= CHUNK_MAX) {
+      // 直前と結合
+      out[out.length - 1] = out[out.length - 1] + " " + l;
+    } else if (out.length && wordCount(out[out.length - 1]) < CHUNK_MIN && wordCount(out[out.length - 1]) + wordCount(l) <= CHUNK_MAX) {
+      // 直前が短すぎた → 今の文を後ろに足す
+      out[out.length - 1] = out[out.length - 1] + " " + l;
+    } else {
+      out.push(l);
+    }
+  }
+  return out;
+}
+
 function parseScript(raw) {
   const ABBR = /\b(Mt|Mr|Mrs|Ms|Dr|St|Jr|Sr|U\.S|U\.K|e\.g|i\.e|etc|vs)\./gi;
   return raw
@@ -843,10 +917,15 @@ function parseScript(raw) {
     .filter(s => s && wordCount(s) >= 2 && /[a-zA-Z]/.test(s));
 }
 
+// parseScript の出力を chunkSentences で均等化
+function parseScriptChunked(raw) {
+  return chunkSentences(parseScript(raw));
+}
+
 async function addCollection() {
   const title = ($("#addTitle").value || "").trim();
   const raw = $("#addText").value;
-  const lines = parseScript(raw);
+  const lines = parseScriptChunked(raw);
   if (!title || !lines.length) {
     toast("タイトルと英文を入力してね");
     return;
