@@ -590,6 +590,14 @@ function listen(onResult, onEnd) {
 }
 function stopListen() {
   if (activeRec) { try { activeRec.stop(); } catch (_) {} activeRec = null; }
+  // MediaRecorder（Cloud STT用）も止める
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    try { mediaRecorder.stop(); } catch (_) {}
+    if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+    mediaRecorder = null; mediaStream = null;
+  }
+  S.recOn = false;
+  S.transcribing = false;
 }
 
 /* ============================================================
@@ -631,7 +639,15 @@ let S = {
   heard: new Set(),
   peeked: {},
   currentCollectionId: null,
+  transcribing: false,   // Cloud STT に送信中
 };
+
+// マイクボタン下の状態テキスト
+function micStatusLabel() {
+  if (S.transcribing) return "🤖 認識中…";
+  if (S.recOn) return SR ? "聞いてるよ…話して！" : "🔴 録音中…もう一度押して停止";
+  return "マイクを押してスタート";
+}
 
 let timerInterval = null;
 function clearTimer() {
@@ -1271,16 +1287,17 @@ function renderMicroDrill(result = null) {
       <div class="en text-5xl font-bold mb-6 tracking-wide">${word}</div>
       <div class="space-y-3 text-center mb-8 min-h-[3rem]">${hints.join("")}</div>
       ${result === "ok"
-        ? `<div class="text-green-600 font-bold text-xl mb-6">👏 いいね！</div>`
+        ? `<div class="text-green-600 font-bold text-xl mb-4">👏 いいね！</div>`
         : result === "ng"
-        ? `<div class="text-red-500 font-semibold mb-6">もう一回いってみよう</div>`
+        ? `<div class="text-red-500 font-semibold mb-4">もう一回いってみよう</div>`
         : ""}
-      <button id="drillMic" class="mic-btn mb-8" onclick="drillSpeak()">🎤</button>
+      <button id="drillMic" class="mic-btn mb-3 ${S.recOn ? "recording" : ""} ${S.transcribing ? "opacity-50" : ""}" ${S.transcribing ? "disabled" : ""} onclick="drillSpeak()">${S.transcribing ? "⏳" : "🎤"}</button>
+      <p class="text-gray-400 text-sm mb-6 h-5">${micStatusLabel()}</p>
       <div class="flex gap-3 w-full">
         <button class="btn-secondary flex-1" onclick="drillHint()">ヒント</button>
         <button class="btn-secondary flex-1" onclick="speak('${word.replace(/'/g, "\\'")}', 0.8)">🔊 聞く</button>
       </div>
-      ${!SR ? `<button class="mt-4 text-indigo-500 font-semibold" onclick="drillPass()">言えた（OKで進む）</button>`
+      ${!MIC_AVAILABLE() ? `<button class="mt-4 text-indigo-500 font-semibold" onclick="drillPass()">言えた（OKで進む）</button>`
             : `<button class="mt-4 text-gray-400 text-sm" onclick="drillPass()">言えたことにして進む</button>`}
     </div>`;
 }
@@ -1291,20 +1308,51 @@ function drillHint() {
   renderMicroDrill();
 }
 
-function drillSpeak() {
+async function drillSpeak() {
   const word = S.drillQueue[0];
-  const btn = $("#drillMic");
-  btn.classList.add("recording");
-  let got = false;
-  listen(
-    (transcript) => {
-      got = true;
-      const ok = normalize(transcript).split(" ").includes(normalize(word));
-      if (ok) drillPass();
+  // SR が使える環境（PC Chrome）：自動停止
+  if (SR) {
+    const btn = $("#drillMic");
+    btn.classList.add("recording");
+    let got = false;
+    listen(
+      (transcript) => {
+        got = true;
+        const okMatch = normalize(transcript).split(" ").includes(normalize(word));
+        if (okMatch) drillPass();
+        else renderMicroDrill("ng");
+      },
+      () => { if (!got) renderMicroDrill("ng"); }
+    );
+    return;
+  }
+  // Cloud STT モード（iOS等）：トグル式
+  if (S.recOn) {
+    S.recOn = false;
+    S.transcribing = true;
+    renderMicroDrill();
+    try {
+      const blob = await stopRecording();
+      const transcript = blob ? await transcribeAudio(blob) : "";
+      S.transcribing = false;
+      const okMatch = transcript && normalize(transcript).split(" ").includes(normalize(word));
+      if (okMatch) drillPass();
       else renderMicroDrill("ng");
-    },
-    () => { if (!got) renderMicroDrill(SR ? "ng" : null); }
-  );
+    } catch (e) {
+      S.transcribing = false;
+      toast(`❌ ${e.message}`);
+      renderMicroDrill("ng");
+    }
+    return;
+  }
+  if (!HAS_CLOUD_STT()) return;
+  try {
+    await startRecording();
+    S.recOn = true;
+    renderMicroDrill();
+  } catch (e) {
+    toast(`❌ マイク開始失敗: ${e.message}`);
+  }
 }
 
 function drillPass() {
@@ -1339,9 +1387,10 @@ function renderStep3(score = null, transcript = null) {
       <div class="en text-2xl leading-relaxed font-medium bg-white rounded-2xl px-5 py-6 shadow-sm border border-gray-100 mb-4">
         ${S.sentence.text}
       </div>
-      <p class="text-gray-400 text-sm text-center mb-6">マイクを押して、声に出して読んでみよう<br><span class="text-xs text-gray-300">（認識した文と元の文を照合して一致率を出します）</span></p>
+      <p class="text-gray-400 text-sm text-center mb-4">マイクを押して、声に出して読んでみよう<br><span class="text-xs text-gray-300">（認識した文と元の文を照合して一致率を出します）</span></p>
       <div class="flex flex-col items-center">
-        <button id="readMic" class="mic-btn mb-6" onclick="readAloud()">🎤</button>
+        <button id="readMic" class="mic-btn mb-3 ${S.recOn ? "recording" : ""} ${S.transcribing ? "opacity-50" : ""}" ${S.transcribing ? "disabled" : ""} onclick="readAloud()">${S.transcribing ? "⏳" : "🎤"}</button>
+        <p class="text-gray-400 text-sm mb-5 h-5">${micStatusLabel()}</p>
         ${score !== null ? `
           <div class="text-center mb-4">
             <div class="text-4xl font-bold ${score >= 60 ? "text-green-600" : "text-amber-500"}">${score}%</div>
@@ -1366,9 +1415,9 @@ function renderStep3(score = null, transcript = null) {
 }
 
 async function readAloud() {
-  const btn = $("#readMic");
   // SRが使える環境（PC Chrome）：従来の自動停止
   if (SR) {
+    const btn = $("#readMic");
     btn.classList.add("recording");
     let got = false;
     listen(
@@ -1380,13 +1429,15 @@ async function readAloud() {
   // Cloud STT モード（iOS等）：トグル式録音
   if (S.recOn) {
     S.recOn = false;
-    btn.classList.remove("recording");
-    toast("🤖 認識中...");
+    S.transcribing = true;
+    renderStep3();
     try {
       const blob = await stopRecording();
       const transcript = blob ? await transcribeAudio(blob) : "";
+      S.transcribing = false;
       renderStep3(transcript ? matchRate(S.sentence.text, transcript) : 0, transcript);
     } catch (e) {
+      S.transcribing = false;
       toast(`❌ ${e.message}`);
       renderStep3(0);
     }
@@ -1396,8 +1447,7 @@ async function readAloud() {
   try {
     await startRecording();
     S.recOn = true;
-    btn.classList.add("recording");
-    toast("🎤 録音中… もう一度押して停止");
+    renderStep3();
   } catch (e) {
     toast(`❌ マイク開始失敗: ${e.message}`);
   }
@@ -1496,8 +1546,8 @@ function renderSpeakFill() {
         ${allFilled
           ? `<div class="text-green-600 font-bold text-xl mb-4">👏 全部言えた！</div>`
           : MIC_AVAILABLE()
-          ? `<button id="speakFillMicBtn" class="mic-btn mb-4 ${S.recOn ? "recording" : ""}" onclick="toggleSpeakFillMic()">🎤</button>
-             <p class="text-gray-300 text-xs mb-2">${S.recOn ? (SR ? "聞いてるよ…話して！" : "録音中…もう一度押して停止") : "マイクを押してスタート"}</p>`
+          ? `<button id="speakFillMicBtn" class="mic-btn mb-3 ${S.recOn ? "recording" : ""} ${S.transcribing ? "opacity-50" : ""}" ${S.transcribing ? "disabled" : ""} onclick="toggleSpeakFillMic()">${S.transcribing ? "⏳" : "🎤"}</button>
+             <p class="text-gray-400 text-sm mb-2 h-5">${micStatusLabel()}</p>`
           : `<p class="text-gray-400 text-sm mb-4">※ 音声認識非対応ブラウザです（GoogleキーがあるとiOSでも利用可能）</p>`}
       </div>
     </div>
@@ -1516,14 +1566,17 @@ async function toggleSpeakFillMic() {
     S.recOn = false;
     if (SR) { stopListen(); renderSpeakFill(); return; }
     // Cloud STT 経由
+    S.transcribing = true;
     renderSpeakFill();
-    toast("🤖 認識中...");
     try {
       const blob = await stopRecording();
       const transcript = blob ? await transcribeAudio(blob) : "";
+      S.transcribing = false;
       if (transcript) applySpeakFill(transcript);
-      else toast("⚠️ 何も認識できませんでした");
+      else { renderSpeakFill(); toast("⚠️ 何も認識できませんでした"); }
     } catch (e) {
+      S.transcribing = false;
+      renderSpeakFill();
       toast(`❌ ${e.message}`);
     }
     return;
