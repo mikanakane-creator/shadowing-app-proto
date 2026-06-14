@@ -98,31 +98,79 @@ const DICTATION_SECONDS = 90;    // Step 2（全文ディクテーション）
 const DUMMY_POOL = ["really", "never", "always", "people", "things", "maybe", "still", "right", "going", "want"];
 const STOPWORDS = new Set(["the","a","an","is","are","was","were","be","been","being","i","you","he","she","it","we","they","of","to","in","on","at","and","but","or","this","that","these","those","what","do","does","did","have","has","had","my","your","his","her","its","our","their","me","him","them","us","for","with","about","as","so","not","no","yes","how","when","where","why","who","am","will","would","can","could","should","there","here","from","by","up","down","out","if","then","than","just","very"]);
 
+const SEED_COLLECTIONS = [
+  { id: "c-sample", title: "お試し3文", emoji: "🌱", createdAt: "2026-06-14" },
+  { id: "c-matt-cutts-30days", title: "30日間チャレンジ (Matt Cutts / TED)", emoji: "🎯", createdAt: "2026-06-14" },
+];
+
+const MATT_CUTTS_TEXTS = [
+  "A few years ago, I felt like I was stuck in a rut, so I decided to follow in the footsteps of the great American philosopher, Morgan Spurlock, and try something new for 30 days.",
+  "The idea is actually pretty simple.",
+  "Think about something you've always wanted to add to your life and try it for the next 30 days.",
+  "It turns out 30 days is just about the right amount of time to add a new habit or subtract a habit -- like watching the news -- from your life.",
+  "There's a few things I learned while doing these 30-day challenges.",
+  "The first was, instead of the months flying by, forgotten, the time was much more memorable.",
+  "This was part of a challenge I did to take a picture every day for a month.",
+  "And I remember exactly where I was and what I was doing that day.",
+  "I also noticed that as I started to do more and harder 30-day challenges, my self-confidence grew.",
+  "I went from desk-dwelling computer nerd to the kind of guy who bikes to work.",
+  "For fun!",
+  "Even last year, I ended up hiking up Mt. Kilimanjaro, the highest mountain in Africa.",
+  "I would never have been that adventurous before I started my 30-day challenges.",
+  "I also figured out that if you really want something badly enough, you can do anything for 30 days.",
+  "Have you ever wanted to write a novel?",
+  "Every November, tens of thousands of people try to write their own 50,000-word novel, from scratch, in 30 days.",
+  "It turns out, all you have to do is write 1,667 words a day for a month.",
+  "So I did.",
+  "By the way, the secret is not to go to sleep until you've written your words for the day.",
+  "You might be sleep-deprived, but you'll finish your novel.",
+  "Now is my book the next great American novel?",
+  "I wrote it in a month.",
+  "It's awful.",
+  "But for the rest of my life, if I meet John Hodgman at a TED party, I don't have to say, \"I'm a computer scientist.\"",
+  "No, no, if I want to, I can say, \"I'm a novelist.\"",
+  "So here's one last thing I'd like to mention.",
+  "I learned that when I made small, sustainable changes, things I could keep doing, they were more likely to stick.",
+  "There's nothing wrong with big, crazy challenges.",
+  "In fact, they're a ton of fun.",
+  "But they're less likely to stick.",
+  "When I gave up sugar for 30 days, day 31 looked like this.",
+  "So here's my question to you: What are you waiting for?",
+  "I guarantee you the next 30 days are going to pass whether you like it or not, so why not think about something you have always wanted to try and give it a shot!",
+  "For the next 30 days.",
+];
+
 const SEED_SENTENCES = [
+  // c-sample: 既存3文（ja・kw・dummies事前設定）
   {
-    id: 1,
+    id: 1, collectionId: "c-sample",
     text: "I don't know how many kinds of coffee they have, but it's a lot.",
     ja: "何種類のコーヒーがあるのか分からないけど、とにかくたくさんある。",
-    kw: [1, 2, 4, 5, 7, 9, 13],
-    dummies: ["drink", "much"],
+    kw: [1, 2, 4, 5, 7, 9, 13], dummies: ["drink", "much"],
     meanings: { "know": "知っている", "kinds": "種類", "have": "持っている・ある", "don't": "〜しない", "many": "多くの", "coffee": "コーヒー", "lot": "たくさん" }
   },
   {
-    id: 2,
+    id: 2, collectionId: "c-sample",
     text: "Is this what you were talking about earlier today?",
     ja: "これが今日さっき話してたこと？",
-    kw: [1, 2, 4, 5, 6, 7],
-    dummies: ["where", "saying"],
+    kw: [1, 2, 4, 5, 6, 7], dummies: ["where", "saying"],
     meanings: { "what": "何・〜のこと", "talking": "話している", "earlier": "さっき・先ほど", "this": "これ", "were": "〜していた", "about": "〜について" }
   },
   {
-    id: 3,
+    id: 3, collectionId: "c-sample",
     text: "She said she would come back, but I haven't heard from her since.",
     ja: "彼女は戻ってくると言ったけど、それ以来連絡がない。",
-    kw: [1, 3, 4, 5, 8, 9, 12],
-    dummies: ["could", "told"],
+    kw: [1, 3, 4, 5, 8, 9, 12], dummies: ["could", "told"],
     meanings: { "would": "〜するつもりだった", "back": "戻って", "heard": "聞いた", "said": "言った", "come": "来る", "haven't": "〜していない", "since": "それ以来" }
-  }
+  },
+  // c-matt-cutts-30days: id 100+番台、ja等は空 → 開いたタイミングで自動生成
+  ...MATT_CUTTS_TEXTS.map((text, i) => ({
+    id: 100 + i + 1,
+    collectionId: "c-matt-cutts-30days",
+    text,
+    ja: "",
+    meanings: {},
+  })),
 ];
 
 /* ============================================================
@@ -140,13 +188,45 @@ function loadSettings() {
 function saveSettings(s) { localStorage.setItem("sw_settings", JSON.stringify(s)); }
 let settings = loadSettings();
 
-function loadSentences() {
+function loadCollections() {
+  let arr = [];
   try {
-    const arr = JSON.parse(localStorage.getItem("sw_sentences") || "null");
-    if (Array.isArray(arr) && arr.length) return arr;
+    const raw = JSON.parse(localStorage.getItem("sw_collections") || "null");
+    if (Array.isArray(raw)) arr = raw;
   } catch (_) {}
-  localStorage.setItem("sw_sentences", JSON.stringify(SEED_SENTENCES));
-  return [...SEED_SENTENCES];
+  // シードコレクションでまだ無いものを追加（既存ユーザにもMatt Cutts等が届くように）
+  const seen = new Set(arr.map(c => c.id));
+  for (const c of SEED_COLLECTIONS) {
+    if (!seen.has(c.id)) arr.push(c);
+  }
+  localStorage.setItem("sw_collections", JSON.stringify(arr));
+  return arr;
+}
+function saveCollections(arr) { localStorage.setItem("sw_collections", JSON.stringify(arr)); }
+let collections = loadCollections();
+
+function loadSentences() {
+  let arr = [];
+  try {
+    const raw = JSON.parse(localStorage.getItem("sw_sentences") || "null");
+    if (Array.isArray(raw)) arr = raw;
+  } catch (_) {}
+  // 旧形式（collectionId 無し）→ サンプルコレクションに振り分け
+  arr = arr.map(s => s.collectionId ? s : { ...s, collectionId: "c-sample" });
+  // シード文でまだ無いID を追加
+  const seen = new Set(arr.map(s => s.id));
+  for (const s of SEED_SENTENCES) {
+    if (!seen.has(s.id)) arr.push(s);
+  }
+  // kw / dummies / meanings の補完（シードでもユーザ追加でも）
+  arr = arr.map(s => ({
+    ...s,
+    kw: s.kw && s.kw.length ? s.kw : autoKeywords(s.text),
+    dummies: s.dummies && s.dummies.length ? s.dummies : autoDummies(s.text),
+    meanings: s.meanings || {},
+  }));
+  localStorage.setItem("sw_sentences", JSON.stringify(arr));
+  return arr;
 }
 function saveSentences(arr) { localStorage.setItem("sw_sentences", JSON.stringify(arr)); }
 let sentences = loadSentences();
@@ -521,8 +601,9 @@ let S = {
   round: 1,
   sfRound: 1,
   recOn: false,
-  heard: new Set(),   // Step 4: 音声認識で読めた単語（小文字core）
-  peeked: {},         // Step 4: タップで答えをチラ見した空白 {tokenIndex: true}
+  heard: new Set(),
+  peeked: {},
+  currentCollectionId: null,
 };
 
 let timerInterval = null;
@@ -534,9 +615,12 @@ function clearTimer() {
    画面骨格
 ============================================================ */
 function header(title, showBack = true, showSkip = true) {
+  // セッション中（Step 1〜5）の戻るは「コレクション詳細」、それ以外はホーム
+  const inSession = S.step >= 1 && S.step <= 5;
+  const backFn = (inSession && S.currentCollectionId) ? "renderCollection()" : "goHome()";
   return `
   <div class="flex items-center px-5 pt-6 pb-3">
-    ${showBack ? `<button onclick="goHome()" class="text-gray-400 text-2xl leading-none mr-3 px-2">‹</button>` : `<span class="w-8"></span>`}
+    ${showBack ? `<button onclick="${backFn}" class="text-gray-400 text-2xl leading-none mr-3 px-2">‹</button>` : `<span class="w-8"></span>`}
     <div class="flex-1 text-center font-semibold text-gray-500 text-sm tracking-wide">${title}</div>
     ${showSkip ? `<button onclick="devSkip()" class="dev-skip">skip ›</button>` : `<span class="w-8"></span>`}
   </div>`;
@@ -574,26 +658,31 @@ function timerBadge() {
 }
 
 /* ============================================================
-   ホーム
+   ホーム（コレクション一覧）
 ============================================================ */
 function goHome() {
   clearTimer(); stopListen(); stopAudio();
+  S.currentCollectionId = null;
   const p = loadProgress();
   const goal = settings.goal || 30;
   const pct = Math.min(100, Math.round((p.words / goal) * 100));
-  const items = sentences.map(s => {
-    const done = p.done.includes(s.id);
+  const items = collections.map(c => {
+    const ss = sentences.filter(s => s.collectionId === c.id);
+    const doneCount = ss.filter(s => p.done.includes(s.id)).length;
+    const wordTotal = ss.reduce((sum, s) => sum + wordCount(s.text), 0);
     return `
     <div class="relative mb-3 fade-in">
-      <button onclick="startSession(${s.id})" class="w-full text-left bg-white rounded-2xl px-5 py-4 shadow-sm border border-gray-100 ${done ? "opacity-60" : ""}">
-        <div class="en text-lg font-medium leading-snug pr-6">${esc(s.text)}</div>
-        ${s.ja ? `<div class="text-xs text-gray-400 mt-1">${esc(s.ja)}</div>` : ""}
-        <div class="flex items-center mt-2 text-sm text-gray-400">
-          <span>${wordCount(s.text)}語</span>
-          ${done ? `<span class="ml-auto text-green-600 font-semibold">✓ 完了</span>` : `<span class="ml-auto text-indigo-500 font-semibold">はじめる ›</span>`}
+      <button onclick="openCollection('${c.id}')" class="w-full text-left bg-white rounded-2xl px-5 py-4 shadow-sm border border-gray-100">
+        <div class="flex items-baseline">
+          <span class="text-2xl mr-3">${c.emoji || "📁"}</span>
+          <div class="flex-1">
+            <div class="font-semibold text-gray-700 leading-snug pr-6">${esc(c.title)}</div>
+            <div class="text-xs text-gray-400 mt-1">${ss.length}文 · ${wordTotal}語 · ${doneCount > 0 ? `<span class="text-green-600">✓ ${doneCount}</span>` : "まだ未着手"}</div>
+          </div>
+          <span class="text-indigo-400 font-semibold text-sm ml-2">›</span>
         </div>
       </button>
-      <button onclick="removeSentence(${s.id})" class="absolute top-3 right-3 text-gray-300 hover:text-red-400 text-lg leading-none px-1">×</button>
+      ${SEED_COLLECTIONS.find(x => x.id === c.id) ? "" : `<button onclick="removeCollection('${c.id}')" class="absolute top-3 right-3 text-gray-300 hover:text-red-400 text-lg leading-none px-1">×</button>`}
     </div>`;
   }).join("");
 
@@ -614,12 +703,50 @@ function goHome() {
         </div>
       </div>
       <div class="flex items-center justify-between mb-3 px-1">
-        <span class="text-sm font-semibold text-gray-500">センテンス</span>
-        <button onclick="renderAddSentence()" class="text-indigo-500 font-semibold text-sm">＋ 文を追加</button>
+        <span class="text-sm font-semibold text-gray-500">コレクション</span>
+        <button onclick="renderAddCollection()" class="text-indigo-500 font-semibold text-sm">＋ 追加</button>
       </div>
-      ${items || `<p class="text-gray-400 text-sm text-center py-8">文がありません。「＋ 文を追加」から登録してね</p>`}
-      ${!aiKey() ? `<p class="text-xs text-gray-400 mt-4 px-1">💡 設定（⚙️）でAPIキー（OpenAI または Google Gemini）を入れると、自然なAI音声になります（今はブラウザ内蔵音声）</p>` : ""}
+      ${items || `<p class="text-gray-400 text-sm text-center py-8">まだコレクションがありません</p>`}
+      ${!aiKey() ? `<p class="text-xs text-gray-400 mt-4 px-1">💡 設定（⚙️）でAPIキーを入れると、自然なAI音声＋自動翻訳が使えます</p>` : ""}
       ${!MIC_AVAILABLE() ? `<p class="text-xs text-gray-400 mt-2 px-1">※ 音声認識が使えません（GoogleキーがあるとiOSでもCloud STT経由で利用可能）</p>` : ""}
+    </div>`;
+}
+
+/* ============================================================
+   コレクション詳細（中の文一覧）
+============================================================ */
+function openCollection(id) {
+  S.currentCollectionId = id;
+  renderCollection();
+}
+
+function renderCollection() {
+  clearTimer(); stopListen(); stopAudio();
+  const c = collections.find(x => x.id === S.currentCollectionId);
+  if (!c) { goHome(); return; }
+  const p = loadProgress();
+  const ss = sentences.filter(s => s.collectionId === c.id);
+
+  const items = ss.map(s => {
+    const done = p.done.includes(s.id);
+    return `
+    <div class="relative mb-3 fade-in">
+      <button onclick="startSession(${s.id})" class="w-full text-left bg-white rounded-2xl px-5 py-4 shadow-sm border border-gray-100 ${done ? "opacity-60" : ""}">
+        <div class="en text-base font-medium leading-snug pr-6">${esc(s.text)}</div>
+        ${s.ja ? `<div class="text-xs text-gray-400 mt-1">${esc(s.ja)}</div>` : ""}
+        <div class="flex items-center mt-2 text-sm text-gray-400">
+          <span>${wordCount(s.text)}語</span>
+          ${done ? `<span class="ml-auto text-green-600 font-semibold">✓ 完了</span>` : `<span class="ml-auto text-indigo-500 font-semibold">はじめる ›</span>`}
+        </div>
+      </button>
+      <button onclick="removeSentence(${s.id})" class="absolute top-3 right-3 text-gray-300 hover:text-red-400 text-lg leading-none px-1">×</button>
+    </div>`;
+  }).join("");
+
+  app.innerHTML = `
+    ${header(`${c.emoji || "📁"} ${esc(c.title)}`, true, false)}
+    <div class="px-5 flex-1" style="padding-bottom: calc(2.5rem + env(safe-area-inset-bottom))">
+      ${items || `<p class="text-gray-400 text-sm text-center py-8">文がありません</p>`}
     </div>`;
 }
 
@@ -629,25 +756,40 @@ function removeSentence(id) {
   if (!confirm(`削除する？\n"${s.text}"`)) return;
   sentences = sentences.filter(x => x.id !== id);
   saveSentences(sentences);
+  if (S.currentCollectionId) renderCollection(); else goHome();
+}
+
+function removeCollection(id) {
+  const c = collections.find(x => x.id === id);
+  if (!c) return;
+  const ss = sentences.filter(s => s.collectionId === id);
+  if (!confirm(`コレクション「${c.title}」を削除する？\n中の${ss.length}文も一緒に消えます`)) return;
+  collections = collections.filter(x => x.id !== id);
+  sentences = sentences.filter(s => s.collectionId !== id);
+  saveCollections(collections);
+  saveSentences(sentences);
   goHome();
 }
 
 /* ============================================================
    文の追加
 ============================================================ */
-function renderAddSentence(status = "") {
+function renderAddCollection(status = "") {
   app.innerHTML = `
-    ${header("文を追加", true, false)}
+    ${header("コレクションを追加", true, false)}
     <div class="flex-1 px-6 fade-in">
-      <p class="text-gray-400 text-sm mb-3 leading-relaxed">英文を貼り付けてね。<br>TEDやYouTubeのスクリプトをまるごと貼ってOK。時間表記（00:34）や（Laughter）などは自動で除外して文ごとに分割します。</p>
-      <textarea id="addText" rows="8" class="en mb-4" placeholder="A few years ago, I felt like I was stuck in a rut..."></textarea>
+      <label class="block text-sm font-semibold text-gray-500 mb-2">タイトル</label>
+      <input type="text" id="addTitle" class="mb-4" placeholder="例：朝のTED 1本">
+      <label class="block text-sm font-semibold text-gray-500 mb-2">英文 / スクリプト</label>
+      <p class="text-gray-400 text-xs mb-2 leading-relaxed">TEDやYouTubeのスクリプトを丸ごと貼ってOK。時間表記（00:34）や（Laughter）などは自動で除外、文ごとに分割します。</p>
+      <textarea id="addText" rows="8" class="en mb-3" placeholder="A few years ago, I felt like I was stuck in a rut..."></textarea>
       ${aiKey()
-        ? `<p class="text-xs text-gray-400 mb-4">✨ 追加時にAIが日本語訳と単語の意味を自動生成します</p>`
-        : `<p class="text-xs text-gray-400 mb-4">APIキー未設定のため、日本語訳なしで追加されます（設定からキーを入れると自動生成）</p>`}
+        ? `<p class="text-xs text-gray-400 mb-4">✨ AIが各文の日本語訳と単語の意味を自動生成（後でセッション中に都度実行されます）</p>`
+        : `<p class="text-xs text-gray-400 mb-4">APIキー未設定のため、日本語訳なしで追加されます</p>`}
       ${status ? `<p class="text-sm text-indigo-500 font-semibold mb-4">${status}</p>` : ""}
     </div>
     <div class="bottom-bar">
-      <button id="addBtn" class="btn-primary w-full" onclick="addSentences()">追加する</button>
+      <button id="addBtn" class="btn-primary w-full" onclick="addCollection()">追加する</button>
     </div>`;
 }
 
@@ -701,40 +843,35 @@ function parseScript(raw) {
     .filter(s => s && wordCount(s) >= 2 && /[a-zA-Z]/.test(s));
 }
 
-async function addSentences() {
+async function addCollection() {
+  const title = ($("#addTitle").value || "").trim();
   const raw = $("#addText").value;
   const lines = parseScript(raw);
-  if (!lines.length) return;
-  $("#addBtn").disabled = true;
-
-  let added = 0;
-  for (const line of lines) {
-    const kw = autoKeywords(line);
-    const tokens = tokenize(line);
-    const kwWords = kw.map(i => tokens[i].core);
-    const s = {
-      id: Date.now() + added,
-      text: line,
-      ja: "",
-      kw,
-      dummies: autoDummies(line),
-      meanings: {}
-    };
-    if (aiKey()) {
-      renderAddSentence(`✨ AIが訳を生成中… (${added + 1}/${lines.length})`);
-      try {
-        const enriched = await enrichSentence(line, kwWords);
-        s.ja = enriched.ja || "";
-        s.meanings = enriched.meanings || {};
-      } catch (e) {
-        console.warn("enrich失敗:", e);
-      }
-    }
-    sentences.push(s);
-    added++;
+  if (!title || !lines.length) {
+    toast("タイトルと英文を入力してね");
+    return;
   }
+  $("#addBtn").disabled = true;
+  const cid = "c-" + Date.now();
+  collections.push({ id: cid, title, emoji: "📚", createdAt: todayKey() });
+  saveCollections(collections);
+
+  const baseId = Date.now();
+  lines.forEach((text, i) => {
+    sentences.push({
+      id: baseId + i + 1,
+      collectionId: cid,
+      text,
+      ja: "",
+      kw: autoKeywords(text),
+      dummies: autoDummies(text),
+      meanings: {}
+    });
+  });
   saveSentences(sentences);
-  goHome();
+  toast(`「${title}」に ${lines.length}文 追加`);
+  S.currentCollectionId = cid;
+  renderCollection();
 }
 
 /* ============================================================
@@ -817,10 +954,18 @@ function testVoice() {
 ============================================================ */
 function startSession(id) {
   S.sentence = sentences.find(s => s.id === id);
+  if (!S.sentence) return;
+  S.currentCollectionId = S.sentence.collectionId || S.currentCollectionId;
   S.step = 1;
   S.round = 1;
   S.sfRound = 1;
   renderStep1();
+}
+
+// セッション完了後の戻り先：コレクション詳細
+function goBackAfterSession() {
+  if (S.currentCollectionId) renderCollection();
+  else goHome();
 }
 
 /* ============================================================
@@ -1465,7 +1610,7 @@ function renderSessionComplete(p, goal) {
       <div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-10 max-w-[16rem]">
         <div class="h-full bg-indigo-500 rounded-full" style="width:${Math.min(100, Math.round(p.words / goal * 100))}%"></div>
       </div>
-      <button class="btn-primary w-full" onclick="goHome()">次のセンテンスへ</button>
+      <button class="btn-primary w-full" onclick="goBackAfterSession()">次のセンテンスへ</button>
     </div>`;
 }
 

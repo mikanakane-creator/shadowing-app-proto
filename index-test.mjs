@@ -17,10 +17,11 @@ await page.reload();
 await page.waitForTimeout(300);
 
 // --- ホーム ---
-console.log('1. ホーム画面');
-ok('シード3本表示', await page.locator('.en').count() >= 3);
-ok('進捗 0 / 30', (await page.textContent('#app')).includes('0'));
-ok('APIキー未設定ヒント表示', (await page.textContent('#app')).includes('APIキー（OpenAI または Google Gemini）'));
+console.log('1. ホーム画面（コレクション一覧）');
+const homeTxt0 = await page.textContent('#app');
+ok('お試しコレクション表示', homeTxt0.includes('お試し3文'));
+ok('Matt Cuttsコレクション表示', homeTxt0.includes('30日間チャレンジ'));
+ok('進捗 0 / 30', homeTxt0.includes('0'));
 
 // --- 設定 ---
 console.log('2. 設定画面');
@@ -49,23 +50,38 @@ await page.click('text=‹');
 await page.waitForTimeout(200);
 ok('ホームに goal 40 反映', (await page.textContent('#app')).includes('/ 40'));
 
-// --- 文の追加（APIキーなし）---
-console.log('3. 文の追加');
-await page.click('text=＋ 文を追加');
+// --- コレクション開く ---
+console.log('3. コレクション詳細');
+await page.click('text=お試し3文');
 await page.waitForTimeout(200);
-await page.fill('#addText', 'The weather has been really nice this week.');
-await page.click('#addBtn');
-await page.waitForTimeout(300);
-ok('ホームに4本目が出る', (await page.textContent('#app')).includes('The weather has been really nice'));
-const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_sentences')));
-ok('localStorage に4本', stored.length === 4);
-const added = stored[3];
-ok('自動キーワードあり', Array.isArray(added.kw) && added.kw.length >= 2);
-ok('ダミーあり', Array.isArray(added.dummies) && added.dummies.length >= 1);
+const colTxt = await page.textContent('#app');
+ok('コレクション詳細を開ける', colTxt.includes('お試し3文'));
+ok('中に3文表示', (await page.locator('.en').count()) >= 3);
+await page.click('text=‹');
+await page.waitForTimeout(200);
 
-// --- セッションフロー（1本目）---
-console.log('4. セッションフロー');
-await page.evaluate(() => startSession(sentences[0].id));
+// --- コレクション追加 ---
+console.log('4. コレクション追加');
+await page.click('text=＋ 追加');
+await page.waitForTimeout(200);
+await page.fill('#addTitle', 'テスト集');
+await page.fill('#addText', 'The weather has been really nice this week. Tomorrow is going to be sunny too. I love sunny days.');
+await page.click('#addBtn');
+await page.waitForTimeout(400);
+const colNow = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_collections')));
+ok('コレクション3つに', colNow.length === 3);
+const newSents = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_sentences')));
+const testColId = colNow[colNow.length - 1].id;
+const newColSents = newSents.filter(s => s.collectionId === testColId);
+ok(`新コレクションに3文 (${newColSents.length})`, newColSents.length === 3);
+ok('自動キーワードあり', newColSents[0].kw && newColSents[0].kw.length >= 2);
+
+await page.evaluate(() => goHome());
+await page.waitForTimeout(200);
+
+// --- セッションフロー（お試し1文目）---
+console.log('5. セッションフロー');
+await page.evaluate(() => startSession(sentences.find(s => s.collectionId === 'c-sample').id));
 await page.waitForTimeout(200);
 ok('Step1 表示', (await page.textContent('#app')).includes('Step 1'));
 await page.click('text=次へ');
@@ -153,19 +169,23 @@ await page.waitForTimeout(300);
 ok('完了画面', (await page.textContent('#app')).includes('1本クリア'));
 await page.click('text=次のセンテンスへ');
 await page.waitForTimeout(200);
-const homeTxt = await page.textContent('#app');
-ok('ホームに進捗反映', homeTxt.includes('✓ 完了'));
-const expectedWords = await page.evaluate(() => wordCount(sentences[0].text));
+const colAfterTxt = await page.textContent('#app');
+ok('セッション完了後コレクション画面に戻る', colAfterTxt.includes('お試し3文'));
+ok('進捗反映', colAfterTxt.includes('✓ 完了'));
+const sampleSentId = await page.evaluate(() => sentences.find(s => s.collectionId === 'c-sample').id);
+const expectedWords = await page.evaluate((id) => wordCount(sentences.find(s => s.id === id).text), sampleSentId);
 const prog = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_progress')));
 ok(`ワード数加算 (${prog.words})`, prog.words === expectedWords);
+await page.evaluate(() => goHome());
+await page.waitForTimeout(200);
 
 // --- リロード後の永続化 ---
-console.log('5. 永続化');
+console.log('6. 永続化');
 await page.reload();
 await page.waitForTimeout(300);
 const after = await page.textContent('#app');
-ok('リロード後も進捗保持', after.includes('✓ 完了') && after.includes(String(expectedWords)));
-ok('リロード後も追加文保持', after.includes('The weather has been'));
+ok('リロード後もコレクション一覧表示', after.includes('お試し3文') && after.includes('30日間チャレンジ'));
+ok('リロード後も追加コレクション保持', after.includes('テスト集'));
 
 // --- 削除 ---
 console.log('6. 文の削除');
