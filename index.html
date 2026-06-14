@@ -648,6 +648,7 @@ let S = {
   peeked: {},
   currentCollectionId: null,
   transcribing: false,   // Cloud STT に送信中
+  lastDrillTranscript: "",
 };
 
 // マイクボタン下の状態テキスト
@@ -1279,6 +1280,42 @@ function onTapFillTimeout() {
 /* ============================================================
    マイクロドリル（救済）
 ============================================================ */
+// 発音記号キャッシュ＆取得（dictionaryapi.dev、無料・キー不要）
+async function fetchPhonetic(word) {
+  const key = "sw_ph_" + word.toLowerCase();
+  const cached = localStorage.getItem(key);
+  if (cached) { try { return JSON.parse(cached); } catch (_) {} }
+  try {
+    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`);
+    if (!res.ok) { localStorage.setItem(key, "null"); return null; }
+    const data = await res.json();
+    const entry = data[0];
+    const phoneticEntry = entry.phonetics?.find(p => p.text && p.audio) || entry.phonetics?.find(p => p.text) || entry.phonetics?.find(p => p.audio) || {};
+    const result = {
+      phonetic: phoneticEntry.text || entry.phonetic || "",
+      audio: phoneticEntry.audio || entry.phonetics?.find(p => p.audio)?.audio || "",
+    };
+    localStorage.setItem(key, JSON.stringify(result));
+    return result;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function playWordNative(word, fallbackRate = 0.7) {
+  const data = await fetchPhonetic(word);
+  if (data && data.audio) {
+    try {
+      const url = data.audio.startsWith("//") ? "https:" + data.audio : data.audio;
+      const aud = new Audio(url);
+      stopAudio();
+      await aud.play();
+      return;
+    } catch (_) {}
+  }
+  speak(word, fallbackRate);
+}
+
 function renderMicroDrill(result = null) {
   stopListen();
   const word = S.drillQueue[0];
@@ -1288,26 +1325,49 @@ function renderMicroDrill(result = null) {
   if (S.drillHint >= 2) hints.push(`<div class="text-gray-500 text-lg">意味：${esc(meaning)}</div>`);
   if (S.drillHint >= 3) hints.push(`<div class="text-indigo-500 text-base">お手本を再生したよ。続けて言ってみて</div>`);
 
+  const wEsc = word.replace(/'/g, "\\'");
   app.innerHTML = `
     ${header("ちょっと練習", true, false)}
     <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
-      <p class="text-gray-400 text-sm mb-6">この単語だけ、いったん練習しよう</p>
-      <div class="en text-5xl font-bold mb-6 tracking-wide">${word}</div>
-      <div class="space-y-3 text-center mb-8 min-h-[3rem]">${hints.join("")}</div>
+      <p class="text-gray-400 text-sm mb-4">この単語だけ、いったん練習しよう</p>
+      <div class="en text-5xl font-bold mb-2 tracking-wide">${word}</div>
+      <div id="phoneticArea" class="flex items-center gap-2 mb-6 min-h-[2.2rem]">
+        <span class="text-gray-300 text-sm">発音記号を取得中…</span>
+      </div>
+      <div class="space-y-3 text-center mb-6 min-h-[2rem]">${hints.join("")}</div>
+      ${S.lastDrillTranscript && result === "ng" ? `
+        <div class="bg-gray-50 rounded-2xl px-4 py-3 mb-4 w-full text-left">
+          <div class="text-xs text-gray-400 mb-1">こう聞こえました</div>
+          <div class="en text-lg text-gray-700">"${esc(S.lastDrillTranscript)}"</div>
+        </div>` : ""}
       ${result === "ok"
         ? `<div class="text-green-600 font-bold text-xl mb-4">👏 いいね！</div>`
         : result === "ng"
-        ? `<div class="text-red-500 font-semibold mb-4">もう一回いってみよう</div>`
+        ? `<div class="text-red-500 font-semibold mb-3">もう一回いってみよう</div>`
         : ""}
       <button id="drillMic" class="mic-btn mb-3 ${S.recOn ? "recording" : ""} ${S.transcribing ? "opacity-50" : ""}" ${S.transcribing ? "disabled" : ""} onclick="drillSpeak()">${S.transcribing ? "⏳" : "🎤"}</button>
-      <p class="text-gray-400 text-sm mb-6 h-5">${micStatusLabel()}</p>
+      <p class="text-gray-400 text-sm mb-5 h-5">${micStatusLabel()}</p>
       <div class="flex gap-3 w-full">
         <button class="btn-secondary flex-1" onclick="drillHint()">ヒント</button>
-        <button class="btn-secondary flex-1" onclick="speak('${word.replace(/'/g, "\\'")}', 0.8)">🔊 聞く</button>
+        <button class="btn-secondary flex-1" onclick="speak('${wEsc}', 0.8)">🔊 聞く</button>
       </div>
       ${!MIC_AVAILABLE() ? `<button class="mt-4 text-indigo-500 font-semibold" onclick="drillPass()">言えた（OKで進む）</button>`
             : `<button class="mt-4 text-gray-400 text-sm" onclick="drillPass()">言えたことにして進む</button>`}
     </div>`;
+  // 発音記号は非同期で取得して埋める
+  fetchPhonetic(word).then(data => {
+    const area = document.getElementById("phoneticArea");
+    if (!area) return;
+    if (data && data.phonetic) {
+      const ipa = esc(data.phonetic);
+      area.innerHTML = `
+        <button class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-base font-medium en" onclick="playWordNative('${wEsc}', 1.0)" title="ネイティブ発音">${ipa} 🔊</button>
+        <button class="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full text-base en" onclick="speak('${wEsc}', 0.5)" title="ゆっくり">🐢</button>
+      `;
+    } else {
+      area.innerHTML = `<span class="text-gray-300 text-sm">発音記号が見つかりませんでした</span>`;
+    }
+  });
 }
 
 function drillHint() {
@@ -1318,6 +1378,7 @@ function drillHint() {
 
 async function drillSpeak() {
   const word = S.drillQueue[0];
+  S.lastDrillTranscript = "";
   // SR が使える環境（PC Chrome）：自動停止
   if (SR) {
     const btn = $("#drillMic");
@@ -1326,6 +1387,7 @@ async function drillSpeak() {
     listen(
       (transcript) => {
         got = true;
+        S.lastDrillTranscript = transcript;
         const okMatch = normalize(transcript).split(" ").includes(normalize(word));
         if (okMatch) drillPass();
         else renderMicroDrill("ng");
@@ -1343,6 +1405,7 @@ async function drillSpeak() {
       const blob = await stopRecording();
       const transcript = blob ? await transcribeAudio(blob) : "";
       S.transcribing = false;
+      S.lastDrillTranscript = transcript || "(無音でした)";
       const okMatch = transcript && normalize(transcript).split(" ").includes(normalize(word));
       if (okMatch) drillPass();
       else renderMicroDrill("ng");
@@ -1367,6 +1430,7 @@ function drillPass() {
   stopListen();
   S.drillQueue.shift();
   S.drillHint = 0;
+  S.lastDrillTranscript = "";
   if (S.drillQueue.length > 0) {
     renderMicroDrill("ok");
   } else {
