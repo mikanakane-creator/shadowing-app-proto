@@ -639,8 +639,8 @@ function renderAddSentence(status = "") {
   app.innerHTML = `
     ${header("文を追加", true, false)}
     <div class="flex-1 px-6 fade-in">
-      <p class="text-gray-400 text-sm mb-3 leading-relaxed">英文を貼り付けてね（1行＝1センテンス）。<br>TEDやYouTubeの字幕からのコピペもOK。</p>
-      <textarea id="addText" rows="6" class="en mb-4" placeholder="She said she would come back."></textarea>
+      <p class="text-gray-400 text-sm mb-3 leading-relaxed">英文を貼り付けてね。<br>TEDやYouTubeのスクリプトをまるごと貼ってOK。時間表記（00:34）や（Laughter）などは自動で除外して文ごとに分割します。</p>
+      <textarea id="addText" rows="8" class="en mb-4" placeholder="A few years ago, I felt like I was stuck in a rut..."></textarea>
       ${aiKey()
         ? `<p class="text-xs text-gray-400 mb-4">✨ 追加時にAIが日本語訳と単語の意味を自動生成します</p>`
         : `<p class="text-xs text-gray-400 mb-4">APIキー未設定のため、日本語訳なしで追加されます（設定からキーを入れると自動生成）</p>`}
@@ -680,9 +680,30 @@ async function enrichSentence(text, kwWords) {
   return JSON.parse(data.choices[0].message.content);
 }
 
+function parseScript(raw) {
+  const ABBR = /\b(Mt|Mr|Mrs|Ms|Dr|St|Jr|Sr|U\.S|U\.K|e\.g|i\.e|etc|vs)\./gi;
+  return raw
+    .split("\n")
+    .map(l => l.trim())
+    // 時間表記の行（00:34, 1:07, 00:00:34 など）を除外
+    .filter(l => l && !/^\d{1,2}(:\d{2}){1,2}$/.test(l))
+    // (Laughter) / (Applause) / [Music] / 【BGM】 など括弧だけの行を除外
+    .filter(l => !/^[(\[（【].*[)\]）】]$/.test(l))
+    .join(" ")
+    // 文中の (Laughter) や [Music] も除去
+    .replace(/[(\[（【][^)\]）】]*[)\]）】]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    // Mt. Mr. などの省略形ピリオドを一時退避（文末分割で誤爆しないように）
+    .replace(ABBR, (m) => m.replace(".", " "))
+    .split(/(?<=[.!?]["”’”]?)\s+/)
+    .map(s => s.replace(/ /g, ".").trim())
+    .filter(s => s && wordCount(s) >= 2 && /[a-zA-Z]/.test(s));
+}
+
 async function addSentences() {
   const raw = $("#addText").value;
-  const lines = raw.split("\n").map(l => l.trim()).filter(l => l && wordCount(l) >= 2);
+  const lines = parseScript(raw);
   if (!lines.length) return;
   $("#addBtn").disabled = true;
 
