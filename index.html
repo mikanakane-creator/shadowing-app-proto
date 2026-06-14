@@ -1319,22 +1319,17 @@ async function playWordNative(word, fallbackRate = 0.7) {
 function renderMicroDrill(result = null) {
   stopListen();
   const word = S.drillQueue[0];
-  const meaning = S.sentence.meanings[word] || "（意味データなし）";
-  const hints = [];
-  if (S.drillHint >= 1) hints.push(`<div class="text-gray-500 tracking-[0.35em] text-xl en">${word.toUpperCase().split("").join(" ")}</div>`);
-  if (S.drillHint >= 2) hints.push(`<div class="text-gray-500 text-lg">意味：${esc(meaning)}</div>`);
-  if (S.drillHint >= 3) hints.push(`<div class="text-indigo-500 text-base">お手本を再生したよ。続けて言ってみて</div>`);
-
+  const meaning = S.sentence.meanings[word] || "";
   const wEsc = word.replace(/'/g, "\\'");
   app.innerHTML = `
     ${header("ちょっと練習", true, false)}
     <div class="flex-1 flex flex-col items-center justify-center px-8 fade-in">
-      <p class="text-gray-400 text-sm mb-4">この単語だけ、いったん練習しよう</p>
+      <p class="text-gray-400 text-sm mb-3">この単語だけ、いったん練習しよう</p>
       <div class="en text-5xl font-bold mb-2 tracking-wide">${word}</div>
-      <div id="phoneticArea" class="flex items-center gap-2 mb-6 min-h-[2.2rem]">
+      <div id="phoneticArea" class="flex items-center gap-2 mb-3 min-h-[2.2rem] flex-wrap justify-center">
         <span class="text-gray-300 text-sm">発音記号を取得中…</span>
       </div>
-      <div class="space-y-3 text-center mb-6 min-h-[2rem]">${hints.join("")}</div>
+      ${meaning ? `<div class="text-gray-500 text-base mb-5">意味：${esc(meaning)}</div>` : `<div class="mb-5"></div>`}
       ${S.lastDrillTranscript && result === "ng" ? `
         <div class="bg-gray-50 rounded-2xl px-4 py-3 mb-4 w-full text-left">
           <div class="text-xs text-gray-400 mb-1">こう聞こえました</div>
@@ -1347,12 +1342,10 @@ function renderMicroDrill(result = null) {
         : ""}
       <button id="drillMic" class="mic-btn mb-3 ${S.recOn ? "recording" : ""} ${S.transcribing ? "opacity-50" : ""}" ${S.transcribing ? "disabled" : ""} onclick="drillSpeak()">${S.transcribing ? "⏳" : "🎤"}</button>
       <p class="text-gray-400 text-sm mb-5 h-5">${micStatusLabel()}</p>
-      <div class="flex gap-3 w-full">
-        <button class="btn-secondary flex-1" onclick="drillHint()">ヒント</button>
-        <button class="btn-secondary flex-1" onclick="speak('${wEsc}', 0.8)">🔊 聞く</button>
+      <div class="flex flex-col gap-2 w-full">
+        <button class="text-amber-600 font-semibold py-2 text-sm" onclick="drillSkip()">💭 今日はスキップ（苦手リストに記録）</button>
+        <button class="${MIC_AVAILABLE() ? "text-gray-400" : "text-indigo-500 font-semibold"} text-sm" onclick="drillPass()">${MIC_AVAILABLE() ? "言えたことにして進む" : "言えた（OKで進む）"}</button>
       </div>
-      ${!MIC_AVAILABLE() ? `<button class="mt-4 text-indigo-500 font-semibold" onclick="drillPass()">言えた（OKで進む）</button>`
-            : `<button class="mt-4 text-gray-400 text-sm" onclick="drillPass()">言えたことにして進む</button>`}
     </div>`;
   // 発音記号は非同期で取得して埋める。辞書になくても音だけは聞けるようボタンは必ず出す
   fetchPhonetic(word).then(data => {
@@ -1369,10 +1362,23 @@ function renderMicroDrill(result = null) {
   });
 }
 
-function drillHint() {
-  S.drillHint = Math.min(3, S.drillHint + 1);
-  if (S.drillHint === 3) speak(S.drillQueue[0], 0.8);
-  renderMicroDrill();
+// 苦手単語リスト：localStorageに重複なしで蓄積
+function markStruggled(word) {
+  try {
+    const list = JSON.parse(localStorage.getItem("sw_struggled") || "[]");
+    if (!list.find(x => x.word.toLowerCase() === word.toLowerCase())) {
+      list.push({ word, addedAt: new Date().toISOString() });
+      localStorage.setItem("sw_struggled", JSON.stringify(list));
+    }
+  } catch (_) {}
+}
+
+// スキップ：苦手リストに記録して drillPass と同じ進行に乗せる
+function drillSkip() {
+  const w = S.drillQueue[0];
+  markStruggled(w);
+  toast(`💭 「${w}」を苦手リストに記録`);
+  drillPass();
 }
 
 async function drillSpeak() {
