@@ -364,9 +364,87 @@ async function speak(text, rate = 1.0) {
 
 /* ============================================================
    音声認識
+   - PCのChrome等：Web Speech API（リアルタイム）
+   - iOS Safari：Web Speech APIは実装あるが実用上動かない（abort即返し）
+     → MediaRecorder + Cloud Speech-to-Text REST APIへ自動切替
 ============================================================ */
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const SR_NATIVE = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+               (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+// iOSではネイティブSRをスキップしてCloud STTを使う
+const SR = (IS_IOS && settings.provider === "google" && settings.googleKey) ? null : SR_NATIVE;
+// Cloud STTが使えるかどうか（マイクUIの判定用）
+const HAS_CLOUD_STT = () => settings.provider === "google" && !!settings.googleKey;
+const MIC_AVAILABLE = () => SR || HAS_CLOUD_STT();
 let activeRec = null;
+
+// === MediaRecorder（Cloud STT用） ===
+let mediaRecorder = null;
+let mediaChunks = [];
+let mediaStream = null;
+
+async function startRecording() {
+  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus"
+                 : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+  mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
+  mediaChunks = [];
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) mediaChunks.push(e.data); };
+  mediaRecorder.start();
+}
+
+function stopRecording() {
+  return new Promise((resolve) => {
+    if (!mediaRecorder || mediaRecorder.state === "inactive") { resolve(null); return; }
+    mediaRecorder.onstop = () => {
+      const type = mediaRecorder.mimeType || "audio/webm";
+      const blob = new Blob(mediaChunks, { type });
+      mediaStream && mediaStream.getTracks().forEach(t => t.stop());
+      mediaRecorder = null; mediaStream = null;
+      resolve(blob);
+    };
+    mediaRecorder.stop();
+  });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onloadend = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function transcribeAudio(blob) {
+  if (!settings.googleKey) throw new Error("Cloud STT用Googleキー未設定");
+  const base64 = await blobToBase64(blob);
+  // mimeTypeからencoding推定
+  const isMp4 = (blob.type || "").includes("mp4");
+  const encoding = isMp4 ? "MP3" : "WEBM_OPUS";   // iOS Safari は mp4/aac (近似MP3)
+  const body = {
+    config: {
+      encoding,
+      languageCode: "en-US",
+      enableAutomaticPunctuation: false,
+      ...(encoding === "WEBM_OPUS" ? { sampleRateHertz: 48000 } : {}),
+    },
+    audio: { content: base64 }
+  };
+  const res = await fetch(`https://speech.googleapis.com/v1/speech:recognize?key=${encodeURIComponent(settings.googleKey)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    const detail = (() => { try { return JSON.parse(t).error?.message || t; } catch { return t; } })().slice(0, 200);
+    throw new Error(`Cloud STT ${res.status}: ${detail}`);
+  }
+  const data = await res.json();
+  if (!data.results || !data.results.length) return "";
+  return data.results.map(r => r.alternatives?.[0]?.transcript || "").join(" ").trim();
+}
 
 function listen(onResult, onEnd) {
   if (!SR) { onEnd && onEnd(); return null; }
@@ -541,7 +619,7 @@ function goHome() {
       </div>
       ${items || `<p class="text-gray-400 text-sm text-center py-8">文がありません。「＋ 文を追加」から登録してね</p>`}
       ${!aiKey() ? `<p class="text-xs text-gray-400 mt-4 px-1">💡 設定（⚙️）でAPIキー（OpenAI または Google Gemini）を入れると、自然なAI音声になります（今はブラウザ内蔵音声）</p>` : ""}
-      ${!SR ? `<p class="text-xs text-gray-400 mt-2 px-1">※ このブラウザは音声認識非対応です。発音チェックは「OKで進む」で通過できます。</p>` : ""}
+      ${!MIC_AVAILABLE() ? `<p class="text-xs text-gray-400 mt-2 px-1">※ 音声認識が使えません（GoogleキーがあるとiOSでもCloud STT経由で利用可能）</p>` : ""}
     </div>`;
 }
 
@@ -1036,23 +1114,48 @@ function renderStep3(score = null, transcript = null) {
              <button class="btn-secondary flex-1" onclick="renderStep3()">もう一回</button>
              <button class="btn-primary flex-1" onclick="gotoSpeakFill()">次へ進む</button>
            </div>`
-        : !SR
+        : !MIC_AVAILABLE()
         ? `<button class="btn-primary w-full" onclick="gotoSpeakFill()">OKで進む（音声認識なし）</button>`
         : `<button class="btn-secondary w-full opacity-50" onclick="gotoSpeakFill()">スキップ</button>`}
     </div>`;
 }
 
-function readAloud() {
+async function readAloud() {
   const btn = $("#readMic");
-  btn.classList.add("recording");
-  let got = false;
-  listen(
-    (transcript) => {
-      got = true;
-      renderStep3(matchRate(S.sentence.text, transcript), transcript);
-    },
-    () => { if (!got) renderStep3(SR ? 0 : null); }
-  );
+  // SRが使える環境（PC Chrome）：従来の自動停止
+  if (SR) {
+    btn.classList.add("recording");
+    let got = false;
+    listen(
+      (transcript) => { got = true; renderStep3(matchRate(S.sentence.text, transcript), transcript); },
+      () => { if (!got) renderStep3(0); }
+    );
+    return;
+  }
+  // Cloud STT モード（iOS等）：トグル式録音
+  if (S.recOn) {
+    S.recOn = false;
+    btn.classList.remove("recording");
+    toast("🤖 認識中...");
+    try {
+      const blob = await stopRecording();
+      const transcript = blob ? await transcribeAudio(blob) : "";
+      renderStep3(transcript ? matchRate(S.sentence.text, transcript) : 0, transcript);
+    } catch (e) {
+      toast(`❌ ${e.message}`);
+      renderStep3(0);
+    }
+    return;
+  }
+  if (!HAS_CLOUD_STT()) { renderStep3(null); return; }
+  try {
+    await startRecording();
+    S.recOn = true;
+    btn.classList.add("recording");
+    toast("🎤 録音中… もう一度押して停止");
+  } catch (e) {
+    toast(`❌ マイク開始失敗: ${e.message}`);
+  }
 }
 
 /* ============================================================
@@ -1147,38 +1250,68 @@ function renderSpeakFill() {
         </div>
         ${allFilled
           ? `<div class="text-green-600 font-bold text-xl mb-4">👏 全部言えた！</div>`
-          : SR
+          : MIC_AVAILABLE()
           ? `<button id="speakFillMicBtn" class="mic-btn mb-4 ${S.recOn ? "recording" : ""}" onclick="toggleSpeakFillMic()">🎤</button>
-             <p class="text-gray-300 text-xs mb-2">${S.recOn ? "聞いてるよ…話して！" : "マイクを押してスタート"}</p>`
-          : `<p class="text-gray-400 text-sm mb-4">※ 音声認識非対応ブラウザです</p>`}
+             <p class="text-gray-300 text-xs mb-2">${S.recOn ? (SR ? "聞いてるよ…話して！" : "録音中…もう一度押して停止") : "マイクを押してスタート"}</p>`
+          : `<p class="text-gray-400 text-sm mb-4">※ 音声認識非対応ブラウザです（GoogleキーがあるとiOSでも利用可能）</p>`}
       </div>
     </div>
     <div class="bottom-bar">
       ${allFilled
         ? `<button class="btn-primary w-full" onclick="nextSfRound()">${S.sfRound >= 4 ? "クリア！仕上げへ" : "次のラウンドへ"}</button>`
-        : !SR
+        : !MIC_AVAILABLE()
         ? `<button class="btn-primary w-full" onclick="nextSfRound()">OKで進む（音声認識なし）</button>`
         : `<button class="btn-secondary w-full opacity-50" onclick="nextSfRound()">スキップ</button>`}
     </div>`;
 }
 
-function toggleSpeakFillMic() {
-  if (S.recOn) { S.recOn = false; stopListen(); renderSpeakFill(); return; }
-  if (!SR) return;
-  S.recOn = true;
-  const rec = new SR();
-  rec.lang = "en-US";
-  rec.continuous = true;
-  rec.interimResults = true;
-  rec.onresult = (e) => {
-    let transcript = "";
-    for (const r of e.results) transcript += r[0].transcript + " ";
-    applySpeakFill(transcript);
-  };
-  rec.onend = () => { S.recOn = false; renderSpeakFill(); };
-  rec.onerror = () => { S.recOn = false; renderSpeakFill(); };
-  try { rec.start(); activeRec = rec; } catch (_) { S.recOn = false; }
-  renderSpeakFill();
+async function toggleSpeakFillMic() {
+  // 停止 → 認識
+  if (S.recOn) {
+    S.recOn = false;
+    if (SR) { stopListen(); renderSpeakFill(); return; }
+    // Cloud STT 経由
+    renderSpeakFill();
+    toast("🤖 認識中...");
+    try {
+      const blob = await stopRecording();
+      const transcript = blob ? await transcribeAudio(blob) : "";
+      if (transcript) applySpeakFill(transcript);
+      else toast("⚠️ 何も認識できませんでした");
+    } catch (e) {
+      toast(`❌ ${e.message}`);
+    }
+    return;
+  }
+  // 開始
+  if (SR) {
+    // PCのChrome等：リアルタイム認識
+    S.recOn = true;
+    const rec = new SR();
+    rec.lang = "en-US";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (e) => {
+      let transcript = "";
+      for (const r of e.results) transcript += r[0].transcript + " ";
+      applySpeakFill(transcript);
+    };
+    rec.onend = () => { S.recOn = false; renderSpeakFill(); };
+    rec.onerror = () => { S.recOn = false; renderSpeakFill(); };
+    try { rec.start(); activeRec = rec; } catch (_) { S.recOn = false; }
+    renderSpeakFill();
+    return;
+  }
+  // iOS等：MediaRecorderで録音、停止時に一括認識
+  if (!HAS_CLOUD_STT()) return;
+  try {
+    await startRecording();
+    S.recOn = true;
+    toast("🎤 録音中… もう一度押して停止");
+    renderSpeakFill();
+  } catch (e) {
+    toast(`❌ マイク開始失敗: ${e.message}`);
+  }
 }
 
 function applySpeakFill(transcript) {
