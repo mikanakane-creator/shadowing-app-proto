@@ -128,10 +128,14 @@ const SEED_SENTENCES = [
 /* ============================================================
    設定・データストア
 ============================================================ */
-const DEFAULT_SETTINGS = { provider: "openai", apiKey: "", voice: "nova", googleKey: "", googleVoice: "Kore", goal: 30 };
+const DEFAULT_SETTINGS = { provider: "openai", apiKey: "", voice: "nova", googleKey: "", googleVoice: "en-US-Neural2-F", goal: 30 };
 function loadSettings() {
-  try { return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem("sw_settings") || "{}")); }
-  catch (_) { return { ...DEFAULT_SETTINGS };  }
+  try {
+    const s = Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem("sw_settings") || "{}"));
+    // 旧Gemini TTS時代の声名（Kore等）が残ってたらCloud TTSのデフォルトに直す
+    if (s.googleVoice && !s.googleVoice.startsWith("en-")) s.googleVoice = DEFAULT_SETTINGS.googleVoice;
+    return s;
+  } catch (_) { return { ...DEFAULT_SETTINGS }; }
 }
 function saveSettings(s) { localStorage.setItem("sw_settings", JSON.stringify(s)); }
 let settings = loadSettings();
@@ -211,8 +215,7 @@ function autoDummies(text) {
    音声（OpenAI / Google Gemini TTS + IndexedDBキャッシュ
    → ブラウザTTSフォールバック）
 ============================================================ */
-const GOOGLE_TTS_MODELS = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview", "gemini-2.5-pro-preview-tts"];
-const GOOGLE_TEXT_MODEL = "gemini-2.5-flash";
+const GOOGLE_TEXT_MODEL = "gemini-2.5-flash";   // 訳生成のみ（TTSとは別API）
 
 function aiKey() { return settings.provider === "google" ? settings.googleKey : settings.apiKey; }
 function activeVoice() { return settings.provider === "google" ? settings.googleVoice : settings.voice; }
@@ -246,36 +249,14 @@ async function fetchTTS(text) {
   return await res.blob();
 }
 
-// 動いたモデルを覚えておいて、以降はそれを使う（毎回fallback巡回しない）
-let googleTtsWorkingModel = null;
-
 async function fetchGoogleTTS(text) {
-  const candidates = googleTtsWorkingModel ? [googleTtsWorkingModel] : GOOGLE_TTS_MODELS;
-  let lastErr = null;
-  for (const model of candidates) {
-    try {
-      const blob = await callGoogleTTS(model, text);
-      googleTtsWorkingModel = model;
-      return blob;
-    } catch (e) {
-      lastErr = e;
-      // モデル未提供以外のエラー（権限・キー・課金など）は即fail。fallback巡回は意味ない
-      if (!/not.found|404|unsupported|invalid.model/i.test(e.message)) throw e;
-    }
-  }
-  throw lastErr || new Error("Gemini TTS: 全モデル失敗");
-}
-
-async function callGoogleTTS(model, text) {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(settings.googleKey)}`, {
+  const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(settings.googleKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{ parts: [{ text }] }],
-      generationConfig: {
-        responseModalities: ["AUDIO"],
-        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.googleVoice } } }
-      }
+      input: { text },
+      voice: { languageCode: "en-US", name: settings.googleVoice },
+      audioConfig: { audioEncoding: "MP3" }
     })
   });
   if (!res.ok) {
@@ -283,16 +264,17 @@ async function callGoogleTTS(model, text) {
     const detail = (() => {
       try { return JSON.parse(body).error?.message || body; } catch { return body; }
     })().slice(0, 200);
-    throw new Error(`Gemini TTS ${res.status} (${model}): ${detail}`);
+    throw new Error(`Cloud TTS ${res.status}: ${detail}`);
   }
   const data = await res.json();
-  const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!part) throw new Error(`Gemini TTS (${model}): 応答に音声データなし`);
-  const rate = parseInt((part.inlineData.mimeType.match(/rate=(\d+)/) || [])[1]) || 24000;
-  return pcmToWav(part.inlineData.data, rate);
+  if (!data.audioContent) throw new Error("Cloud TTS: 応答に音声データなし");
+  const bin = atob(data.audioContent);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: "audio/mp3" });
 }
 
-// Geminiは生PCM(16bit mono)を返すので、WAVヘッダを付けてブラウザで再生可能にする
+// 無音アンロック用（PCM→WAV）。unlockAudio で使用
 function pcmToWav(b64, sampleRate) {
   const bin = atob(b64);
   const pcm = new Uint8Array(bin.length);
@@ -652,7 +634,15 @@ async function addSentences() {
    設定
 ============================================================ */
 const OPENAI_VOICES = { nova: "明るめ・推奨", shimmer: "柔らかめ", alloy: "中性", echo: "男性", fable: "英国風", onyx: "低い男性" };
-const GOOGLE_VOICES = { Kore: "はっきり・推奨", Zephyr: "明るめ", Puck: "元気", Leda: "若々しい", Sulafat: "あたたかい", Charon: "落ち着き" };
+const GOOGLE_VOICES = {
+  "en-US-Neural2-F": "女性・自然（Neural2-F・推奨）",
+  "en-US-Neural2-C": "女性・落ち着き（Neural2-C）",
+  "en-US-Neural2-H": "女性・明るめ（Neural2-H）",
+  "en-US-Neural2-J": "男性・自然（Neural2-J）",
+  "en-US-Neural2-D": "男性・落ち着き（Neural2-D）",
+  "en-US-Studio-O": "女性・高品質（Studio-O）",
+  "en-US-Studio-Q": "男性・高品質（Studio-Q）",
+};
 
 function renderSettings(saved = false) {
   const isGoogle = settings.provider === "google";
@@ -664,12 +654,14 @@ function renderSettings(saved = false) {
       <label class="block text-sm font-semibold text-gray-500 mb-2">AI音声プロバイダ</label>
       <select id="setProvider" class="mb-5" onchange="changeProvider(this.value)">
         <option value="openai" ${isGoogle ? "" : "selected"}>OpenAI</option>
-        <option value="google" ${isGoogle ? "selected" : ""}>Google Gemini</option>
+        <option value="google" ${isGoogle ? "selected" : ""}>Google Cloud Text-to-Speech</option>
       </select>
 
-      <label class="block text-sm font-semibold text-gray-500 mb-2">${isGoogle ? "Gemini APIキー（AI Studio）" : "OpenAI APIキー"}</label>
+      <label class="block text-sm font-semibold text-gray-500 mb-2">${isGoogle ? "Cloud TTS APIキー" : "OpenAI APIキー"}</label>
       <input type="password" id="setKey" value="${esc(isGoogle ? settings.googleKey : settings.apiKey)}" placeholder="${isGoogle ? "AIza..." : "sk-..."}" class="mb-1">
-      <p class="text-xs text-gray-400 mb-5">この端末のブラウザにだけ保存されます（外部送信は${isGoogle ? "Google" : "OpenAI"} APIのみ）</p>
+      <p class="text-xs text-gray-400 mb-5">${isGoogle
+        ? "Google Cloud Console で <code>Cloud Text-to-Speech API</code> を有効にしたプロジェクトのキーが必要（ShadMeで使ってるキーが流用できます）"
+        : "この端末のブラウザにだけ保存されます（外部送信はOpenAI APIのみ）"}</p>
 
       <label class="block text-sm font-semibold text-gray-500 mb-2">AI音声の声</label>
       <select id="setVoice" class="mb-2">

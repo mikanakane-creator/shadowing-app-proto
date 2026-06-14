@@ -30,9 +30,9 @@ ok('設定画面が開く', (await page.textContent('#app')).includes('OpenAI AP
 // プロバイダ切替
 await page.selectOption('#setProvider', 'google');
 await page.waitForTimeout(200);
-ok('Google切替でGeminiキー欄', (await page.textContent('#app')).includes('Gemini APIキー'));
-ok('Google音声リスト', (await page.textContent('#setVoice')).includes('Kore'));
-await page.selectOption('#setVoice', 'Zephyr');
+ok('Google切替でCloud TTSキー欄', (await page.textContent('#app')).includes('Cloud TTS APIキー'));
+ok('Cloud TTS声リスト (Neural2)', (await page.textContent('#setVoice')).includes('Neural2-F'));
+await page.selectOption('#setVoice', 'en-US-Neural2-J');
 await page.selectOption('#setProvider', 'openai');
 await page.waitForTimeout(200);
 ok('OpenAIに戻せる', (await page.textContent('#app')).includes('OpenAI APIキー'));
