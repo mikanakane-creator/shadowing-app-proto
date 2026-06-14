@@ -1559,7 +1559,8 @@ function renderSpeakFill() {
           ? `<div class="text-green-600 font-bold text-xl mb-4">👏 全部言えた！</div>`
           : MIC_AVAILABLE()
           ? `<button id="speakFillMicBtn" class="mic-btn mb-3 ${S.recOn ? "recording" : ""} ${S.transcribing ? "opacity-50" : ""}" ${S.transcribing ? "disabled" : ""} onclick="toggleSpeakFillMic()">${S.transcribing ? "⏳" : "🎤"}</button>
-             <p class="text-gray-400 text-sm mb-2 h-5">${micStatusLabel()}</p>`
+             <p class="text-gray-400 text-sm mb-2 h-5">${micStatusLabel()}</p>
+             ${!S.recOn && !S.transcribing ? `<button class="text-indigo-500 text-sm font-semibold mt-1" onclick="drillUnfilledFromSpeakFill()">🎯 言えない単語を練習</button>` : ""}`
           : `<p class="text-gray-400 text-sm mb-4">※ 音声認識非対応ブラウザです（GoogleキーがあるとiOSでも利用可能）</p>`}
       </div>
     </div>
@@ -1644,6 +1645,19 @@ function applySpeakFill(transcript) {
   const allFilled = S.blanks.every(i => S.filled[i]);
   if (allFilled) { clearTimer(); stopListen(); S.recOn = false; }
   renderSpeakFill();
+}
+
+// Step 4 で詰まった時、未埋め単語をマイクロドリルで個別練習
+function drillUnfilledFromSpeakFill() {
+  clearTimer(); stopAllMic();
+  const tokens = tokenize(S.sentence.text);
+  const missed = S.blanks
+    .filter(i => !S.filled[i])
+    .map(i => tokens[i].core);
+  if (!missed.length) { renderSpeakFill(); return; }
+  S.drillQueue = [...new Set(missed)].slice(0, 3);
+  S.drillHint = 0;
+  renderMicroDrill();
 }
 
 function peekBlank(i) {
