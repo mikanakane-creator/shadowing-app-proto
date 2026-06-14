@@ -370,32 +370,40 @@ let activeRec = null;
 
 function listen(onResult, onEnd) {
   if (!SR) { onEnd && onEnd(); return null; }
+  toast("🎤 録音中... 話して");
   const rec = new SR();
   rec.lang = "en-US";
-  rec.interimResults = true;   // iOS Safariはfinal来ないことがあるのでinterimも拾う
+  rec.interimResults = false;
   rec.continuous = false;
   rec.maxAlternatives = 1;
-  let latest = "";
   let fired = false;
+  rec.onstart = () => toast("🎤 録音中... 話して");
+  rec.onspeechstart = () => toast("🎙️ 声を検出！");
   rec.onresult = (e) => {
-    latest = "";
-    for (const r of e.results) latest += r[0].transcript + " ";
-    const last = e.results[e.results.length - 1];
-    if (last && last.isFinal && !fired) {
-      fired = true;
-      onResult(latest.trim());
-    }
+    if (fired) return;
+    fired = true;
+    const text = e.results[0]?.[0]?.transcript || "";
+    toast(`✅ 認識: "${text}"`);
+    onResult(text);
   };
-  rec.onerror = () => { if (!fired) { fired = true; onEnd && onEnd(); } };
+  rec.onerror = (e) => {
+    if (fired) return;
+    fired = true;
+    toast(`❌ マイクエラー: ${e.error || "unknown"}`);
+    onEnd && onEnd();
+  };
   rec.onend = () => {
-    if (!fired) {
-      fired = true;
-      // finalが来なかった場合でも暫定結果があれば渡す
-      if (latest.trim()) onResult(latest.trim());
-      else onEnd && onEnd();
-    }
+    if (fired) return;
+    fired = true;
+    toast(`⚠️ 録音終了したけど結果なし（声が小さい or マイク許可？）`);
+    onEnd && onEnd();
   };
-  try { rec.start(); } catch (_) { fired = true; onEnd && onEnd(); return null; }
+  try { rec.start(); } catch (e) {
+    fired = true;
+    toast(`❌ マイク開始失敗: ${e.message}`);
+    onEnd && onEnd();
+    return null;
+  }
   activeRec = rec;
   return rec;
 }
