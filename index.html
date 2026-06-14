@@ -1400,10 +1400,14 @@ function renderStep3(score = null, transcript = null) {
         <button id="readMic" class="mic-btn mb-3 ${S.recOn ? "recording" : ""} ${S.transcribing ? "opacity-50" : ""}" ${S.transcribing ? "disabled" : ""} onclick="readAloud()">${S.transcribing ? "⏳" : "🎤"}</button>
         <p class="text-gray-400 text-sm mb-5 h-5">${micStatusLabel()}</p>
         ${score !== null ? `
-          <div class="text-center mb-4">
-            <div class="text-4xl font-bold ${score >= 60 ? "text-green-600" : "text-amber-500"}">${score}%</div>
-            <div class="text-gray-400 text-sm mt-1">一致率</div>
-            ${transcript ? `<div class="text-gray-400 text-xs mt-2 en">"${esc(transcript)}"</div>` : ""}
+          <div class="text-center mb-4 w-full">
+            <div class="text-5xl font-bold ${score >= 60 ? "text-green-600" : "text-amber-500"}">${score}%</div>
+            <div class="text-gray-400 text-sm mt-1 mb-4">一致率</div>
+            ${transcript ? `
+              <div class="bg-gray-50 rounded-2xl px-4 py-3 text-left">
+                <div class="text-xs text-gray-400 mb-1">こう聞こえました</div>
+                <div class="en text-lg text-gray-700 leading-relaxed">"${esc(transcript)}"</div>
+              </div>` : ""}
           </div>` : ""}
         <button class="btn-secondary w-full mb-3" onclick="speak(S.sentence.text)">🔊 お手本を聞く</button>
       </div>
