@@ -29,9 +29,10 @@
   .btn-secondary { background: #EFEEEA; color: #2D2D2D; }
   .btn-primary:active, .btn-secondary:active { transform: scale(0.97); }
   .btn-primary:disabled { opacity: 0.35; }
-  /* 画面下の最終ボタン領域（iPhone Safe Areaを尊重して押せる空間を確保） */
+  /* 画面下の最終ボタン領域（iPhone Safe Area＋Safariツールバー回避） */
   .bottom-bar {
-    padding: 0.5rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom));
+    padding: 0.75rem 1.5rem;
+    padding-bottom: max(2.5rem, calc(1rem + env(safe-area-inset-bottom)));
   }
   .dev-skip {
     color: #C9C6BE; font-size: 0.7rem;
@@ -60,8 +61,9 @@
   .blank-slot {
     display: inline-block; min-width: 3.2em; text-align: center;
     border-bottom: 2.5px solid #C9C6BE; padding: 0 0.2em;
-    color: var(--accent); font-weight: 600; cursor: pointer;
+    color: var(--accent); font-weight: 600;
   }
+  .blank-slot.empty, .blank-slot.peek { cursor: pointer; }
   .blank-slot.empty { color: transparent; }
   .blank-slot.wrong { border-color: #DC2626; color: #DC2626; }
   .blank-slot.correct { border-color: #16A34A; color: #16A34A; }
@@ -85,7 +87,7 @@
 </style>
 </head>
 <body>
-<div class="max-w-md mx-auto min-h-screen flex flex-col" id="app"></div>
+<div class="max-w-md mx-auto flex flex-col" id="app" style="min-height: 100dvh"></div>
 
 <script>
 /* ============================================================
@@ -324,13 +326,18 @@ function stopAudio() {
 }
 
 // iOS Safariはユーザー操作と無関係なaudio.play()をブロックするため、
-// 最初のタップで無音WAVを再生して同一Audio要素をアンロックしておく
+// 最初のタップで無音WAVを別Audioで再生して、後続のaudioEl.play()を解禁する
+// （audioElを直接いじるとStep1で再生中のTTSを壊してマイクも巻き込む不具合があった）
+const unlockEl = new Audio();
 let audioUnlocked = false;
 function unlockAudio() {
   if (audioUnlocked) return;
   audioUnlocked = true;
-  audioEl.src = URL.createObjectURL(pcmToWav(btoa("\0".repeat(400)), 8000));
-  audioEl.play().catch(() => { audioUnlocked = false; });
+  try {
+    unlockEl.src = URL.createObjectURL(pcmToWav(btoa("\0".repeat(400)), 8000));
+    const p = unlockEl.play();
+    if (p && p.catch) p.catch(() => { audioUnlocked = false; });
+  } catch (_) { audioUnlocked = false; }
 }
 document.addEventListener("touchend", unlockAudio, true);
 document.addEventListener("click", unlockAudio, true);
@@ -340,7 +347,7 @@ function toast(msg) {
   if (!el) {
     el = document.createElement("div");
     el.id = "toast";
-    el.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2D2D2D;color:#fff;padding:12px 18px;border-radius:12px;font-size:12px;line-height:1.5;z-index:50;max-width:92%;transition:opacity .3s;word-break:break-word;cursor:pointer;";
+    el.style.cssText = "position:fixed;top:calc(env(safe-area-inset-top) + 60px);left:50%;transform:translateX(-50%);background:#2D2D2D;color:#fff;padding:12px 18px;border-radius:12px;font-size:12px;line-height:1.5;z-index:50;max-width:92%;transition:opacity .3s;word-break:break-word;cursor:pointer;";
     el.onclick = () => { el.style.opacity = "0"; };
     document.body.appendChild(el);
   }
@@ -383,12 +390,30 @@ function listen(onResult, onEnd) {
   if (!SR) { onEnd && onEnd(); return null; }
   const rec = new SR();
   rec.lang = "en-US";
-  rec.interimResults = false;
+  rec.interimResults = true;   // iOS Safariはfinal来ないことがあるのでinterimも拾う
+  rec.continuous = false;
   rec.maxAlternatives = 1;
-  rec.onresult = (e) => onResult(e.results[0][0].transcript);
-  rec.onerror = () => onEnd && onEnd();
-  rec.onend = () => onEnd && onEnd();
-  try { rec.start(); } catch (_) { onEnd && onEnd(); return null; }
+  let latest = "";
+  let fired = false;
+  rec.onresult = (e) => {
+    latest = "";
+    for (const r of e.results) latest += r[0].transcript + " ";
+    const last = e.results[e.results.length - 1];
+    if (last && last.isFinal && !fired) {
+      fired = true;
+      onResult(latest.trim());
+    }
+  };
+  rec.onerror = () => { if (!fired) { fired = true; onEnd && onEnd(); } };
+  rec.onend = () => {
+    if (!fired) {
+      fired = true;
+      // finalが来なかった場合でも暫定結果があれば渡す
+      if (latest.trim()) onResult(latest.trim());
+      else onEnd && onEnd();
+    }
+  };
+  try { rec.start(); } catch (_) { fired = true; onEnd && onEnd(); return null; }
   activeRec = rec;
   return rec;
 }
