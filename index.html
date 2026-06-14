@@ -1354,19 +1354,18 @@ function renderMicroDrill(result = null) {
       ${!MIC_AVAILABLE() ? `<button class="mt-4 text-indigo-500 font-semibold" onclick="drillPass()">言えた（OKで進む）</button>`
             : `<button class="mt-4 text-gray-400 text-sm" onclick="drillPass()">言えたことにして進む</button>`}
     </div>`;
-  // 発音記号は非同期で取得して埋める
+  // 発音記号は非同期で取得して埋める。辞書になくても音だけは聞けるようボタンは必ず出す
   fetchPhonetic(word).then(data => {
     const area = document.getElementById("phoneticArea");
     if (!area) return;
-    if (data && data.phonetic) {
-      const ipa = esc(data.phonetic);
-      area.innerHTML = `
-        <button class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-base font-medium en" onclick="playWordNative('${wEsc}', 1.0)" title="ネイティブ発音">${ipa} 🔊</button>
-        <button class="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full text-base en" onclick="speak('${wEsc}', 0.5)" title="ゆっくり">🐢</button>
-      `;
-    } else {
-      area.innerHTML = `<span class="text-gray-300 text-sm">発音記号が見つかりませんでした</span>`;
-    }
+    const ipaChip = (data && data.phonetic)
+      ? `<button class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-base font-medium en" onclick="playWordNative('${wEsc}', 1.0)" title="ネイティブ発音">${esc(data.phonetic)} 🔊</button>`
+      : `<button class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-sm font-medium" onclick="playWordNative('${wEsc}', 1.0)" title="発音">🔊 ふつう速度</button>`;
+    area.innerHTML = `
+      ${ipaChip}
+      <button class="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full text-base en" onclick="speak('${wEsc}', 0.5)" title="ゆっくり">🐢</button>
+      ${(!data || !data.phonetic) ? `<span class="text-gray-300 text-xs">辞書になし（固有名詞かも）</span>` : ""}
+    `;
   });
 }
 
