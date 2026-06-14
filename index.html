@@ -108,41 +108,44 @@ const SEED_COLLECTIONS = [
   { id: "c-matt-cutts-30days", title: "30日間チャレンジ (Matt Cutts / TED)", emoji: "🎯", createdAt: "2026-06-14" },
 ];
 
-const MATT_CUTTS_TEXTS = [
-  "A few years ago, I felt like I was stuck in a rut, so I decided to follow in the footsteps of the great American philosopher, Morgan Spurlock, and try something new for 30 days.",
-  "The idea is actually pretty simple.",
-  "Think about something you've always wanted to add to your life and try it for the next 30 days.",
-  "It turns out 30 days is just about the right amount of time to add a new habit or subtract a habit -- like watching the news -- from your life.",
-  "There's a few things I learned while doing these 30-day challenges.",
-  "The first was, instead of the months flying by, forgotten, the time was much more memorable.",
-  "This was part of a challenge I did to take a picture every day for a month.",
-  "And I remember exactly where I was and what I was doing that day.",
-  "I also noticed that as I started to do more and harder 30-day challenges, my self-confidence grew.",
-  "I went from desk-dwelling computer nerd to the kind of guy who bikes to work.",
-  "For fun!",
-  "Even last year, I ended up hiking up Mt. Kilimanjaro, the highest mountain in Africa.",
-  "I would never have been that adventurous before I started my 30-day challenges.",
-  "I also figured out that if you really want something badly enough, you can do anything for 30 days.",
-  "Have you ever wanted to write a novel?",
-  "Every November, tens of thousands of people try to write their own 50,000-word novel, from scratch, in 30 days.",
-  "It turns out, all you have to do is write 1,667 words a day for a month.",
-  "So I did.",
-  "By the way, the secret is not to go to sleep until you've written your words for the day.",
-  "You might be sleep-deprived, but you'll finish your novel.",
-  "Now is my book the next great American novel?",
-  "I wrote it in a month.",
-  "It's awful.",
-  "But for the rest of my life, if I meet John Hodgman at a TED party, I don't have to say, \"I'm a computer scientist.\"",
-  "No, no, if I want to, I can say, \"I'm a novelist.\"",
-  "So here's one last thing I'd like to mention.",
-  "I learned that when I made small, sustainable changes, things I could keep doing, they were more likely to stick.",
-  "There's nothing wrong with big, crazy challenges.",
-  "In fact, they're a ton of fun.",
-  "But they're less likely to stick.",
-  "When I gave up sugar for 30 days, day 31 looked like this.",
-  "So here's my question to you: What are you waiting for?",
-  "I guarantee you the next 30 days are going to pass whether you like it or not, so why not think about something you have always wanted to try and give it a shot!",
-  "For the next 30 days.",
+// 均等化済みの36文＋日本語訳＋主要単語の意味（手書き）。chunkSentencesは通さない。
+const MATT_CUTTS_DATA = [
+  { en: "A few years ago, I felt like I was stuck in a rut,", ja: "数年前、僕はマンネリに陥っているような気がして、", meanings: { "felt": "感じた", "stuck": "はまっている・抜け出せない", "rut": "マンネリ・型にはまった状態" } },
+  { en: "so I decided to follow in the footsteps of the great American philosopher, Morgan Spurlock,", ja: "それで偉大なアメリカの哲学者モーガン・スパーロックの足跡をたどることにした、", meanings: { "decided": "決めた", "follow": "従う・たどる", "footsteps": "足跡", "philosopher": "哲学者" } },
+  { en: "and try something new for 30 days.", ja: "30日間、新しいことを試してみることに。", meanings: { "try": "試す", "something": "何か", "new": "新しい" } },
+  { en: "The idea is actually pretty simple.", ja: "アイデアは実はとてもシンプル。", meanings: { "idea": "アイデア・考え", "actually": "実は", "pretty": "けっこう", "simple": "シンプル・簡単" } },
+  { en: "Think about something you've always wanted to add to your life and try it for the next 30 days.", ja: "ずっと生活に取り入れたかったことを考えて、次の30日間それを試してみよう。", meanings: { "think": "考える", "always": "ずっと", "wanted": "したかった", "add": "加える", "life": "人生・生活", "next": "次の" } },
+  { en: "It turns out 30 days is just about the right amount of time to add a new habit or subtract a habit", ja: "わかったのは、30日って新しい習慣を加えたり、習慣を1つやめたりするのにちょうどいい長さだってこと", meanings: { "turns out": "わかる・判明する", "just about": "ちょうど", "right": "ちょうどいい", "amount": "量", "habit": "習慣", "subtract": "引く・やめる" } },
+  { en: "like watching the news from your life.", ja: "例えばニュースを見るのを生活からなくす、みたいに。", meanings: { "like": "〜のような", "watching": "見ること", "news": "ニュース", "life": "生活" } },
+  { en: "There's a few things I learned while doing these 30-day challenges.", ja: "この30日チャレンジで学んだことがいくつかある。", meanings: { "few": "いくつかの", "things": "こと", "learned": "学んだ", "while": "〜している間", "challenges": "チャレンジ" } },
+  { en: "The first was, instead of the months flying by, forgotten, the time was much more memorable.", ja: "まず1つ目は、何ヶ月もただ過ぎ去って忘れられるのではなく、時間がずっと記憶に残るようになったこと。", meanings: { "first": "1つ目", "instead": "代わりに", "months": "月", "flying by": "あっという間に過ぎる", "forgotten": "忘れられた", "memorable": "記憶に残る" } },
+  { en: "This was part of a challenge I did to take a picture every day for a month.", ja: "これは1ヶ月毎日写真を撮るっていうチャレンジの一部。", meanings: { "part": "一部", "challenge": "チャレンジ", "take a picture": "写真を撮る", "every": "毎", "month": "月" } },
+  { en: "And I remember exactly where I was and what I was doing that day.", ja: "その日どこにいて、何をしていたか正確に覚えている。", meanings: { "remember": "覚えている", "exactly": "正確に", "where": "どこ", "doing": "していた", "day": "日" } },
+  { en: "I also noticed that as I started to do more and harder 30-day challenges, my self-confidence grew.", ja: "それと、もっと多く、もっと難しい30日チャレンジをやるうちに、自信がついていったのもわかった。", meanings: { "noticed": "気づいた", "harder": "より難しい", "self-confidence": "自信", "grew": "育った・増した" } },
+  { en: "I went from desk-dwelling computer nerd to the kind of guy who bikes to work. For fun!", ja: "デスクにかじりつくコンピュータオタクから、自転車通勤するタイプの人間に変わった。しかも趣味で！", meanings: { "went": "なった・変わった", "desk-dwelling": "机に張りついた", "nerd": "オタク", "kind": "タイプ", "bikes": "自転車で行く", "fun": "楽しみ・趣味" } },
+  { en: "Even last year, I ended up hiking up Mt. Kilimanjaro, the highest mountain in Africa.", ja: "去年なんかは、アフリカで一番高い山キリマンジャロまで登ってしまった。", meanings: { "even": "〜さえ", "ended up": "結局〜することに", "hiking": "登る", "highest": "一番高い", "mountain": "山" } },
+  { en: "I would never have been that adventurous before I started my 30-day challenges.", ja: "30日チャレンジを始める前は、そんなに冒険的にはなれなかったはず。", meanings: { "never": "決して〜ない", "adventurous": "冒険的", "before": "〜の前", "started": "始めた" } },
+  { en: "I also figured out that if you really want something badly enough, you can do anything for 30 days.", ja: "本気で何かが欲しいなら、30日間なら何だってできる、ってこともわかった。", meanings: { "figured out": "わかった", "really": "本当に", "badly enough": "十分強く", "anything": "何でも" } },
+  { en: "Have you ever wanted to write a novel?", ja: "小説を書いてみたいと思ったことある？", meanings: { "ever": "今までに", "wanted": "したかった", "write": "書く", "novel": "小説" } },
+  { en: "Every November, tens of thousands of people try to write their own 50,000-word novel, from scratch, in 30 days.", ja: "毎年11月、何万人もの人が30日間でゼロから自分の5万語の小説を書こうとする。", meanings: { "every": "毎", "tens of thousands": "何万", "from scratch": "ゼロから", "novel": "小説" } },
+  { en: "It turns out, all you have to do is write 1,667 words a day for a month. So I did.", ja: "やるべきことは、1ヶ月の間、1日1,667語書くだけ。だから僕もやった。", meanings: { "turns out": "わかる", "all you have to do": "やるべきことは〜だけ", "words": "単語", "month": "月" } },
+  { en: "By the way, the secret is not to go to sleep until you've written your words for the day.", ja: "ちなみに、コツはその日の分を書き終わるまで寝ないこと。", meanings: { "by the way": "ちなみに", "secret": "秘訣", "sleep": "寝る", "until": "〜まで", "written": "書いた" } },
+  { en: "You might be sleep-deprived, but you'll finish your novel.", ja: "寝不足にはなるかもしれないけど、小説は書き上がる。", meanings: { "might": "かもしれない", "sleep-deprived": "寝不足", "finish": "終える", "novel": "小説" } },
+  { en: "Now is my book the next great American novel?", ja: "じゃあ僕の本は次の偉大なアメリカ小説か？", meanings: { "book": "本", "next": "次の", "great": "偉大な", "novel": "小説" } },
+  { en: "I wrote it in a month. It's awful.", ja: "1ヶ月で書いたんだもん、ひどいよ。", meanings: { "wrote": "書いた", "month": "月", "awful": "ひどい" } },
+  { en: "But for the rest of my life,", ja: "でも、これからの人生ずっと、", meanings: { "rest": "残り", "life": "人生" } },
+  { en: "if I meet John Hodgman at a TED party, I don't have to say, \"I'm a computer scientist.\"", ja: "TEDのパーティでジョン・ホッジマンに会っても、「コンピュータ科学者です」って言わなくていい。", meanings: { "meet": "会う", "party": "パーティ", "don't have to": "〜しなくていい", "computer scientist": "コンピュータ科学者" } },
+  { en: "No, no, if I want to, I can say, \"I'm a novelist.\"", ja: "いやいや、その気になれば、「小説家です」って言えるんだ。", meanings: { "want": "したい", "say": "言う", "novelist": "小説家" } },
+  { en: "So here's one last thing I'd like to mention.", ja: "じゃあ最後にひとつだけ言わせてほしいことがある。", meanings: { "last": "最後", "thing": "こと", "would like to": "〜したい", "mention": "触れる・言及する" } },
+  { en: "I learned that when I made small, sustainable changes, things I could keep doing, they were more likely to stick.", ja: "学んだのは、小さくて続けられる変化、つまりずっと続けられることのほうが定着しやすいってこと。", meanings: { "learned": "学んだ", "small": "小さい", "sustainable": "続けられる", "changes": "変化", "more likely": "〜しやすい", "stick": "定着する" } },
+  { en: "There's nothing wrong with big, crazy challenges.", ja: "大きくて無茶なチャレンジが悪いってわけじゃない。", meanings: { "nothing": "何もない", "wrong": "悪い", "big": "大きい", "crazy": "無茶な" } },
+  { en: "In fact, they're a ton of fun.", ja: "むしろ、すごく楽しい。", meanings: { "in fact": "実際", "a ton of": "たくさんの", "fun": "楽しさ" } },
+  { en: "But they're less likely to stick.", ja: "ただ、定着はしにくい。", meanings: { "less likely": "〜しにくい", "stick": "定着する" } },
+  { en: "When I gave up sugar for 30 days, day 31 looked like this.", ja: "30日間砂糖をやめたとき、31日目はこんな感じだった。", meanings: { "gave up": "やめた", "sugar": "砂糖", "looked like": "〜のようだった" } },
+  { en: "So here's my question to you: What are you waiting for?", ja: "じゃあ僕からみんなに質問。何を待ってるの？", meanings: { "question": "質問", "waiting": "待っている" } },
+  { en: "I guarantee you the next 30 days are going to pass whether you like it or not,", ja: "保証するけど、次の30日はあなたが望もうと望むまいと過ぎていく、", meanings: { "guarantee": "保証する", "pass": "過ぎる", "whether": "〜かどうか" } },
+  { en: "so why not think about something you have always wanted to try and give it a shot!", ja: "だから、ずっとやってみたかった何かを考えて、やってみたら？", meanings: { "why not": "やってみたら？", "think": "考える", "always": "ずっと", "give it a shot": "試してみる" } },
+  { en: "For the next 30 days.", ja: "次の30日間で。", meanings: { "next": "次の" } },
 ];
 
 const SEED_SENTENCES = [
@@ -207,7 +210,7 @@ function loadSentences() {
   let arr = [];
   try {
     // Matt Cuttsシードのバージョンが上がったら既存文を削除して再シード（均等化版に差し替え）
-    const MATT_V = 2;
+    const MATT_V = 3;
     if (parseInt(localStorage.getItem("sw_matt_v") || "1") < MATT_V) {
       const old = JSON.parse(localStorage.getItem("sw_sentences") || "[]");
       if (Array.isArray(old)) {
@@ -284,12 +287,12 @@ function shuffle(arr) {
 function wordCount(text) { return tokenize(text).filter(t => t.core).length; }
 
 function getMattCuttsSeed() {
-  return chunkSentences(MATT_CUTTS_TEXTS).map((text, i) => ({
+  return MATT_CUTTS_DATA.map((d, i) => ({
     id: 100 + i + 1,
     collectionId: "c-matt-cutts-30days",
-    text,
-    ja: "",
-    meanings: {},
+    text: d.en,
+    ja: d.ja || "",
+    meanings: d.meanings || {},
   }));
 }
 
