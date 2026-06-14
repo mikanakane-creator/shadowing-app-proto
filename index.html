@@ -656,6 +656,7 @@ let S = {
   currentCollectionId: null,
   transcribing: false,
   lastDrillTranscript: "",
+  drillReturnTo: null,   // "struggled" なら苦手リスト画面に戻る
 };
 
 // マイクボタン下の状態テキスト
@@ -832,13 +833,18 @@ function renderStruggled() {
   const items = list.length ? list.slice().reverse().map(item => {
     const wEsc = item.word.replace(/'/g, "\\'");
     return `
-    <div class="bg-white rounded-2xl px-4 py-3 mb-2 shadow-sm border border-gray-100 flex items-center fade-in">
-      <button onclick="playWordNative('${wEsc}', 1.0)" class="text-indigo-500 text-xl mr-3">🔊</button>
-      <div class="flex-1 min-w-0">
-        <div class="en text-lg font-bold truncate">${esc(item.word)}</div>
-        <div class="text-xs text-gray-400">${new Date(item.addedAt).toLocaleDateString("ja-JP")}</div>
+    <div class="bg-white rounded-2xl px-4 py-3 mb-2 shadow-sm border border-gray-100 fade-in">
+      <div class="flex items-center mb-2">
+        <button onclick="playWordNative('${wEsc}', 1.0)" class="text-indigo-500 text-xl mr-3">🔊</button>
+        <div class="flex-1 min-w-0">
+          <div class="en text-lg font-bold truncate">${esc(item.word)}</div>
+          <div class="text-xs text-gray-400">${new Date(item.addedAt).toLocaleDateString("ja-JP")}</div>
+        </div>
       </div>
-      <button onclick="markAsMastered('${wEsc}')" class="text-green-600 text-sm font-semibold border border-green-200 rounded-full px-3 py-1 ml-2">✓ できる</button>
+      <div class="flex gap-2">
+        <button onclick="drillFromStruggled('${wEsc}')" class="flex-1 text-indigo-600 text-sm font-semibold border border-indigo-200 rounded-full px-3 py-1.5">🎤 練習する</button>
+        <button onclick="markAsMastered('${wEsc}')" class="flex-1 text-green-600 text-sm font-semibold border border-green-200 rounded-full px-3 py-1.5">✓ できる</button>
+      </div>
     </div>`;
   }).join("") : `<p class="text-gray-400 text-sm text-center py-10">苦手単語はまだありません。<br>スキップしたときに自動で記録されます。</p>`;
 
@@ -854,6 +860,19 @@ function markAsMastered(word) {
   unmarkStruggled(word);
   toast(`🎉 「${word}」を卒業！`);
   renderStruggled();
+}
+
+// 苦手リストから単語をピックして練習モード起動
+function drillFromStruggled(word) {
+  stopAllMic();
+  S.drillQueue = [word];
+  S.drillHint = 0;
+  S.lastDrillTranscript = "";
+  S.drillReturnTo = "struggled";
+  // 仮想 sentence（microdrill が meanings 参照する都合）
+  S.sentence = { id: -1, text: word, ja: "", meanings: {} };
+  S.step = 0;
+  renderMicroDrill();
 }
 
 function removeCollection(id) {
@@ -1507,22 +1526,32 @@ async function drillSpeak() {
 
 function drillPass() {
   stopListen();
+  const justFinished = S.drillQueue[0];
   S.drillQueue.shift();
   S.drillHint = 0;
   S.lastDrillTranscript = "";
   if (S.drillQueue.length > 0) {
     renderMicroDrill("ok");
-  } else {
-    S.checked = false;
-    if (S.step === 4) {
-      S.timeLeft = TIMER_SECONDS;
-      renderSpeakFill();
-    } else {
-      S.timeLeft = DICTATION_SECONDS;
-      renderTapFill();
-    }
-    startTapFillTimer();
+    return;
   }
+  // 苦手リストから来た場合は苦手リスト画面に戻る
+  if (S.drillReturnTo === "struggled") {
+    S.drillReturnTo = null;
+    S.sentence = null;
+    toast(`👏 「${justFinished}」言えたね！`);
+    renderStruggled();
+    return;
+  }
+  // 通常のセッション中：Step 2 or 4 に復帰
+  S.checked = false;
+  if (S.step === 4) {
+    S.timeLeft = TIMER_SECONDS;
+    renderSpeakFill();
+  } else {
+    S.timeLeft = DICTATION_SECONDS;
+    renderTapFill();
+  }
+  startTapFillTimer();
 }
 
 /* ============================================================
