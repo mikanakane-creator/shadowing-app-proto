@@ -761,6 +761,12 @@ function goHome() {
           <div class="h-full bg-indigo-500 rounded-full" style="width:${pct}%; transition: width .4s"></div>
         </div>
       </div>
+      ${struggledSet.size > 0 ? `
+        <button onclick="renderStruggled()" class="w-full bg-amber-50 border border-amber-200 text-amber-700 rounded-2xl px-4 py-3 mb-4 text-left flex items-center">
+          <span class="text-lg mr-2">💭</span>
+          <span class="font-semibold text-sm flex-1">苦手単語 ${struggledSet.size}個</span>
+          <span class="text-sm">›</span>
+        </button>` : ""}
       <div class="flex items-center justify-between mb-3 px-1">
         <span class="text-sm font-semibold text-gray-500">コレクション</span>
         <button onclick="renderAddCollection()" class="text-indigo-500 font-semibold text-sm">＋ 追加</button>
@@ -816,6 +822,38 @@ function removeSentence(id) {
   sentences = sentences.filter(x => x.id !== id);
   saveSentences(sentences);
   if (S.currentCollectionId) renderCollection(); else goHome();
+}
+
+/* ============================================================
+   苦手単語リスト画面
+============================================================ */
+function renderStruggled() {
+  const list = loadStruggled();
+  const items = list.length ? list.slice().reverse().map(item => {
+    const wEsc = item.word.replace(/'/g, "\\'");
+    return `
+    <div class="bg-white rounded-2xl px-4 py-3 mb-2 shadow-sm border border-gray-100 flex items-center fade-in">
+      <button onclick="playWordNative('${wEsc}', 1.0)" class="text-indigo-500 text-xl mr-3">🔊</button>
+      <div class="flex-1 min-w-0">
+        <div class="en text-lg font-bold truncate">${esc(item.word)}</div>
+        <div class="text-xs text-gray-400">${new Date(item.addedAt).toLocaleDateString("ja-JP")}</div>
+      </div>
+      <button onclick="markAsMastered('${wEsc}')" class="text-green-600 text-sm font-semibold border border-green-200 rounded-full px-3 py-1 ml-2">✓ できる</button>
+    </div>`;
+  }).join("") : `<p class="text-gray-400 text-sm text-center py-10">苦手単語はまだありません。<br>スキップしたときに自動で記録されます。</p>`;
+
+  app.innerHTML = `
+    ${header("苦手単語", true, false)}
+    <div class="flex-1 px-5 fade-in" style="padding-bottom: calc(2.5rem + env(safe-area-inset-bottom))">
+      ${list.length ? `<p class="text-gray-400 text-xs mb-4 px-1">タップして発音を聞ける／「できる」で卒業（黄色スキップ解除）</p>` : ""}
+      ${items}
+    </div>`;
+}
+
+function markAsMastered(word) {
+  unmarkStruggled(word);
+  toast(`🎉 「${word}」を卒業！`);
+  renderStruggled();
 }
 
 function removeCollection(id) {
@@ -1369,7 +1407,16 @@ function renderMicroDrill(result = null) {
   });
 }
 
-// 苦手単語リスト：localStorageに重複なしで蓄積
+// 苦手単語リスト：localStorageに重複なしで蓄積。メモリにSet保持で都度lookupを高速化
+let struggledSet = new Set();
+function loadStruggled() {
+  try {
+    const list = JSON.parse(localStorage.getItem("sw_struggled") || "[]");
+    struggledSet = new Set(list.map(x => x.word.toLowerCase()));
+    return list;
+  } catch (_) { struggledSet = new Set(); return []; }
+}
+function isStruggled(word) { return word && struggledSet.has(word.toLowerCase()); }
 function markStruggled(word) {
   try {
     const list = JSON.parse(localStorage.getItem("sw_struggled") || "[]");
@@ -1377,8 +1424,18 @@ function markStruggled(word) {
       list.push({ word, addedAt: new Date().toISOString() });
       localStorage.setItem("sw_struggled", JSON.stringify(list));
     }
+    struggledSet.add(word.toLowerCase());
   } catch (_) {}
 }
+function unmarkStruggled(word) {
+  try {
+    const list = JSON.parse(localStorage.getItem("sw_struggled") || "[]");
+    const filtered = list.filter(x => x.word.toLowerCase() !== word.toLowerCase());
+    localStorage.setItem("sw_struggled", JSON.stringify(filtered));
+    struggledSet.delete(word.toLowerCase());
+  } catch (_) {}
+}
+loadStruggled();
 
 // スキップ：苦手リストに記録、Step 4 ならその空欄を「黄色で答え入り」状態にして進める
 function drillSkip() {
@@ -1599,6 +1656,8 @@ function renderSpeakFill() {
   const peekCount = Object.keys(peeked).filter(i => !S.filled[i]).length;
 
   const skipped = S.skipped || {};
+  // 苦手リスト入りの単語は自動でスキップ扱い（黄色）にする
+  const autoSkip = (i) => isStruggled(tokens[i].core);
   const sentenceHtml = tokens.map((t, i) => {
     const coreLower = t.core ? t.core.toLowerCase() : "";
     if (!blanks.includes(i)) {
@@ -1609,7 +1668,7 @@ function renderSpeakFill() {
     if (word) {
       return `<span class="blank-slot correct">${word}</span><span>${t.suffix}</span>`;
     }
-    if (skipped[i]) {
+    if (skipped[i] || autoSkip(i)) {
       // 苦手スキップ → 黄色で答えが入った状態
       return `<span class="blank-slot skipped">${t.core}</span><span>${t.suffix}</span>`;
     }
@@ -1621,7 +1680,7 @@ function renderSpeakFill() {
   }).join(" ");
 
   // 苦手スキップも「埋まった」扱いで先に進める
-  const allFilled = blanks.every(i => S.filled[i] || skipped[i]);
+  const allFilled = blanks.every(i => S.filled[i] || skipped[i] || autoSkip(i));
 
   app.innerHTML = `
     ${header("Step 4 · 話して埋める")}
