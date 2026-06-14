@@ -49,6 +49,12 @@
     border-bottom-style: dashed;
     opacity: 0.85;
   }
+  .blank-slot.skipped {
+    color: #D97706;
+    border-color: #FBBF24;
+    background: #FEF3C7;
+    border-radius: 4px;
+  }
   .chip {
     background: #fff; border: 1.5px solid #E2E0DA;
     border-radius: 0.9rem; padding: 0.55rem 1rem;
@@ -646,8 +652,9 @@ let S = {
   recOn: false,
   heard: new Set(),
   peeked: {},
+  skipped: {},           // Step 4: 苦手記録でスキップした空欄 {tokenIndex: true}
   currentCollectionId: null,
-  transcribing: false,   // Cloud STT に送信中
+  transcribing: false,
   lastDrillTranscript: "",
 };
 
@@ -1373,10 +1380,20 @@ function markStruggled(word) {
   } catch (_) {}
 }
 
-// スキップ：苦手リストに記録して drillPass と同じ進行に乗せる
+// スキップ：苦手リストに記録、Step 4 ならその空欄を「黄色で答え入り」状態にして進める
 function drillSkip() {
   const w = S.drillQueue[0];
   markStruggled(w);
+  // Step 4 で対応する空欄の最初の1つに skipped フラグ
+  if (S.step === 4 && S.sentence) {
+    const tokens = tokenize(S.sentence.text);
+    for (const i of S.blanks) {
+      if (!S.filled[i] && !S.skipped[i] && tokens[i].core.toLowerCase() === w.toLowerCase()) {
+        S.skipped[i] = true;
+        break;
+      }
+    }
+  }
   toast(`💭 「${w}」を苦手リストに記録`);
   drillPass();
 }
@@ -1561,6 +1578,7 @@ function gotoSpeakFill(round = 1) {
   S.filled = {};
   S.heard = new Set();
   S.peeked = {};
+  S.skipped = {};
   S.recOn = false;
   S.timeLeft = TIMER_SECONDS;
   renderSpeakFill();
@@ -1580,29 +1598,30 @@ function renderSpeakFill() {
   const peeked = S.peeked || {};
   const peekCount = Object.keys(peeked).filter(i => !S.filled[i]).length;
 
+  const skipped = S.skipped || {};
   const sentenceHtml = tokens.map((t, i) => {
     const coreLower = t.core ? t.core.toLowerCase() : "";
     if (!blanks.includes(i)) {
-      // 空白でない単語：読めたら緑にハイライト
       const isHeard = coreLower && heard.has(coreLower);
       return `<span class="${isHeard ? "word-heard" : ""}">${t.raw}</span>`;
     }
-    // 空白の単語
     const word = S.filled[i];
     if (word) {
-      // 読めた → 緑filled
       return `<span class="blank-slot correct">${word}</span><span>${t.suffix}</span>`;
     }
+    if (skipped[i]) {
+      // 苦手スキップ → 黄色で答えが入った状態
+      return `<span class="blank-slot skipped">${t.core}</span><span>${t.suffix}</span>`;
+    }
     if (peeked[i]) {
-      // チラ見中 → 薄グレーで答え表示
       return `<span class="blank-slot peek" onclick="unpeekBlank(${i})">${t.core}</span><span>${t.suffix}</span>`;
     }
-    // 未着手 → タップでチラ見可能
     const display = "_".repeat(Math.max(3, t.core.length));
     return `<span class="blank-slot empty" onclick="peekBlank(${i})">${display}</span><span>${t.suffix}</span>`;
   }).join(" ");
 
-  const allFilled = blanks.every(i => S.filled[i]);
+  // 苦手スキップも「埋まった」扱いで先に進める
+  const allFilled = blanks.every(i => S.filled[i] || skipped[i]);
 
   app.innerHTML = `
     ${header("Step 4 · 話して埋める")}
