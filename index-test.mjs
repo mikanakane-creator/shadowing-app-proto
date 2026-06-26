@@ -69,7 +69,7 @@ await page.fill('#addText', 'The weather has been really nice this week. Tomorro
 await page.click('#addBtn');
 await page.waitForTimeout(400);
 const colNow = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_collections')));
-ok('コレクション3つに', colNow.length === 3);
+ok('コレクション7つに', colNow.length === 7);
 const newSents = await page.evaluate(() => JSON.parse(localStorage.getItem('sw_sentences')));
 const testColId = colNow[colNow.length - 1].id;
 const newColSents = newSents.filter(s => s.collectionId === testColId);

@@ -112,6 +112,11 @@ const CHUNK_MAX = 20;
 const SEED_COLLECTIONS = [
   { id: "c-sample", title: "お試し3文", emoji: "🌱", createdAt: "2026-06-14" },
   { id: "c-matt-cutts-30days", title: "30日間チャレンジ (Matt Cutts / TED)", emoji: "🎯", createdAt: "2026-06-14" },
+  // pbook『3ヶ月で英語耳を作るシャドーイング』音声01〜09（個人練習用）
+  { id: "c-pbook-basic", title: "基本会話（職場）", emoji: "💬", createdAt: "2026-06-26" },
+  { id: "c-pbook-office", title: "オフィス会話", emoji: "🏢", createdAt: "2026-06-26" },
+  { id: "c-pbook-phone", title: "電話対応", emoji: "📞", createdAt: "2026-06-26" },
+  { id: "c-pbook-meeting", title: "ミーティング", emoji: "👥", createdAt: "2026-06-26" },
 ];
 
 // 均等化済みの36文＋日本語訳＋主要単語の意味（手書き）。chunkSentencesは通さない。
@@ -240,6 +245,10 @@ function loadSentences() {
   for (const s of getMattCuttsSeed()) {
     if (!seen.has(s.id)) arr.push(s);
   }
+  // pbook シャドーイング教材（音声01〜09）
+  for (const s of getPbookSeed()) {
+    if (!seen.has(s.id)) arr.push(s);
+  }
   // kw / dummies / meanings の補完（シードでもユーザ追加でも）
   arr = arr.map(s => ({
     ...s,
@@ -251,7 +260,8 @@ function loadSentences() {
   return arr;
 }
 function saveSentences(arr) { localStorage.setItem("sw_sentences", JSON.stringify(arr)); }
-let sentences = loadSentences();
+// sentences の初期化は、シードデータ（MATT_CUTTS_DATA / PBOOK_DATA）の定義後にまとめて行う（getPbookSeed 定義直後）
+let sentences;
 
 /* ============================================================
    ユーティリティ
@@ -301,6 +311,105 @@ function getMattCuttsSeed() {
     meanings: d.meanings || {},
   }));
 }
+
+const PBOOK_DATA = [
+  // ── 音声01：基本会話（職場のやりとり） col: c-pbook-basic ──
+  { col: "c-pbook-basic", en: "How's the construction project been going?", ja: "建設プロジェクトの進み具合どう？", meanings: { "construction": "建設", "project": "プロジェクト", "been going": "進んでいる" } },
+  { col: "c-pbook-basic", en: "It's running behind schedule, but we should be able to complete it on time thanks to your help.", ja: "予定より遅れてるけど、君の助けのおかげで予定通りに終えられそうだよ。", meanings: { "running behind schedule": "予定より遅れている", "be able to": "〜できる", "complete": "完了する", "on time": "時間通りに", "thanks to": "〜のおかげで" } },
+  { col: "c-pbook-basic", en: "That's wonderful. By the way, our team is going to dinner tonight.", ja: "それは素晴らしい。ところで、今夜うちのチームで夕飯に行くんだ。", meanings: { "wonderful": "素晴らしい", "by the way": "ところで", "dinner": "夕食", "tonight": "今夜" } },
+  { col: "c-pbook-basic", en: "Why don't you come along?", ja: "君も一緒に来ない？", meanings: { "why don't you": "〜したら？", "come along": "一緒に来る" } },
+  { col: "c-pbook-basic", en: "Sounds nice. Since I'm still new here, I'd like a chance to meet some more people.", ja: "いいですね。まだここでは新人なので、もっといろんな人と知り合う機会が欲しいんです。", meanings: { "sounds nice": "いいね", "since": "〜なので", "still": "まだ", "chance": "機会", "meet": "会う" } },
+  { col: "c-pbook-basic", en: "Great. I'll get in touch with you later.", ja: "よかった。じゃあ後で連絡するね。", meanings: { "great": "いいね", "get in touch with": "連絡を取る", "later": "後で" } },
+  { col: "c-pbook-basic", en: "Thank you. See you around.", ja: "ありがとうございます。また会いましょう。", meanings: { "see you around": "またね・また会いましょう" } },
+
+  // ── 音声03：Practice01 オフィス会話① col: c-pbook-office ──
+  { col: "c-pbook-office", en: "I know we planned to meet at 2 o'clock today in conference room 303 about our new project,", ja: "今日2時に会議室303で新しいプロジェクトについて打ち合わせる予定だったよね、", meanings: { "planned": "予定していた", "conference room": "会議室", "project": "プロジェクト" } },
+  { col: "c-pbook-office", en: "but the projector in the room doesn't work.", ja: "でもその部屋のプロジェクターが動かないんだ。", meanings: { "projector": "プロジェクター", "doesn't work": "動かない・故障している" } },
+  { col: "c-pbook-office", en: "Oh, really? We need to move to another room, then.", ja: "えっ、ほんと？じゃあ別の部屋に移らないとね。", meanings: { "really": "本当に", "need to": "〜する必要がある", "move": "移動する", "another": "別の", "then": "それなら" } },
+  { col: "c-pbook-office", en: "How about room 406? Nobody is going to use it until 3 o'clock.", ja: "406号室はどう？3時まで誰も使わないよ。", meanings: { "how about": "〜はどう？", "nobody": "誰も〜ない", "until": "〜まで" } },
+  { col: "c-pbook-office", en: "Well, in that case, it's better to start our meeting earlier.", ja: "うーん、それなら、ミーティングを早めに始めたほうがいいね。", meanings: { "in that case": "その場合は", "better to": "〜したほうがいい", "earlier": "より早く" } },
+  { col: "c-pbook-office", en: "Otherwise we can't finish by 3.", ja: "じゃないと3時までに終わらないから。", meanings: { "otherwise": "さもないと", "finish": "終える", "by": "〜までに" } },
+  { col: "c-pbook-office", en: "How about changing the time to 1 o'clock?", ja: "時間を1時に変えるのはどう？", meanings: { "how about": "〜はどう？", "changing": "変えること" } },
+  { col: "c-pbook-office", en: "Good. I'd better hurry and inform the other attendees about the schedule change.", ja: "いいね。じゃあ急いで他の出席者に予定変更を知らせないと。", meanings: { "had better": "〜したほうがいい", "hurry": "急ぐ", "inform": "知らせる", "attendees": "出席者", "schedule change": "予定変更" } },
+
+  // ── 音声04：Practice02 オフィス会話② col: c-pbook-office ──
+  { col: "c-pbook-office", en: "Hi, George. Do you know about the farewell party for the general managing officer next month?", ja: "やあジョージ。来月の専務の送別会のこと知ってる？", meanings: { "farewell party": "送別会", "general managing officer": "専務・統括役員", "next month": "来月" } },
+  { col: "c-pbook-office", en: "I think I got an e-mail about it, but I can't find it.", ja: "それについてメールもらった気がするんだけど、見つからないんだ。", meanings: { "got an e-mail": "メールを受け取った", "find": "見つける" } },
+  { col: "c-pbook-office", en: "Are you going to the party?", ja: "あなたはそのパーティ行くの？", meanings: { "party": "パーティ" } },
+  { col: "c-pbook-office", en: "I didn't see your name on the list, so I thought you weren't coming.", ja: "リストにあなたの名前がなかったから、来ないのかと思ってた。", meanings: { "list": "リスト・名簿", "thought": "思った", "weren't coming": "来ない" } },
+  { col: "c-pbook-office", en: "The deadline to sign up was yesterday.", ja: "申し込みの締め切りは昨日だったよ。", meanings: { "deadline": "締め切り", "sign up": "申し込む", "yesterday": "昨日" } },
+  { col: "c-pbook-office", en: "Oh, really? Is there any way for me to sign up now?", ja: "えっ、ほんと？今から申し込む方法って何かある？", meanings: { "any way": "何か方法", "sign up": "申し込む" } },
+  { col: "c-pbook-office", en: "I'd really like to see him and show my gratitude for his strong support during this tough decade.", ja: "この大変な10年間の手厚いサポートに、どうしても会って感謝を伝えたいんだ。", meanings: { "would like to": "〜したい", "gratitude": "感謝", "support": "支援", "tough": "大変な", "decade": "10年間" } },
+  { col: "c-pbook-office", en: "It shouldn't be a problem.", ja: "問題ないはずだよ。", meanings: { "shouldn't": "〜ないはず", "problem": "問題" } },
+  { col: "c-pbook-office", en: "You can go to the personnel division and ask them.", ja: "人事部に行って聞いてみればいいよ。", meanings: { "personnel division": "人事部", "ask": "尋ねる" } },
+
+  // ── 音声05：Practice03 オフィス会話③ col: c-pbook-office ──
+  { col: "c-pbook-office", en: "Have you arranged for the dinner with our clients tonight?", ja: "今夜のクライアントとの会食の手配はもうした？", meanings: { "arranged": "手配した", "clients": "顧客", "tonight": "今夜" } },
+  { col: "c-pbook-office", en: "Yes, I've already made a reservation at a famous restaurant for 7 o'clock.", ja: "うん、もう有名なレストランを7時で予約したよ。", meanings: { "already": "すでに", "reservation": "予約", "famous": "有名な" } },
+  { col: "c-pbook-office", en: "I tried to reserve a corner table, but only window tables were available.", ja: "奥の隅の席を取ろうとしたんだけど、窓際の席しか空いてなかった。", meanings: { "tried to": "〜しようとした", "reserve": "予約する", "corner table": "隅の席", "available": "空いている・利用できる" } },
+  { col: "c-pbook-office", en: "That's no problem.", ja: "それは問題ないよ。", meanings: { "problem": "問題" } },
+  { col: "c-pbook-office", en: "Oh, I've just remembered that one of our clients is a vegetarian.", ja: "あ、今思い出したけど、クライアントの1人がベジタリアンなんだ。", meanings: { "remembered": "思い出した", "clients": "顧客", "vegetarian": "ベジタリアン・菜食主義者" } },
+  { col: "c-pbook-office", en: "Can you call back to the restaurant and confirm the menu?", ja: "レストランに電話し直してメニューを確認してくれる？", meanings: { "call back": "電話をかけ直す", "confirm": "確認する", "menu": "メニュー" } },
+  { col: "c-pbook-office", en: "Sure. But I think it should be fine.", ja: "もちろん。でもたぶん大丈夫だと思うよ。", meanings: { "sure": "もちろん", "should be fine": "大丈夫なはず" } },
+  { col: "c-pbook-office", en: "The restaurant seems to have a good reputation for its large selection of organic vegetable dishes.", ja: "あのレストラン、オーガニック野菜料理の種類が豊富なことで評判いいみたいだから。", meanings: { "seems to": "〜のようだ", "reputation": "評判", "selection": "品揃え", "organic": "オーガニック・有機の", "dishes": "料理" } },
+
+  // ── 音声06：Practice04 電話対応① col: c-pbook-phone ──
+  { col: "c-pbook-phone", en: "Thank you for calling ABC Company. How can I help you?", ja: "お電話ありがとうございます、ABCカンパニーです。ご用件をお伺いします。", meanings: { "calling": "電話すること", "how can I help you": "どうされましたか・ご用件は" } },
+  { col: "c-pbook-phone", en: "Hello. This is Smith Garcia from XYZ Electronics.", ja: "もしもし。XYZエレクトロニクスのスミス・ガルシアと申します。", meanings: { "this is": "こちらは〜です", "from": "〜の・〜から" } },
+  { col: "c-pbook-phone", en: "I'd like to speak with Mr. George Brown, please.", ja: "ジョージ・ブラウンさんとお話ししたいのですが。", meanings: { "would like to": "〜したい", "speak with": "〜と話す" } },
+  { col: "c-pbook-phone", en: "Sure. Could you hold for a moment while I put your call through?", ja: "かしこまりました。おつなぎする間、少々お待ちいただけますか？", meanings: { "hold": "電話を切らずに待つ", "for a moment": "少しの間", "put your call through": "電話をつなぐ" } },
+  { col: "c-pbook-phone", en: "I'm afraid he is not available right now. May I take a message?", ja: "あいにく彼は今席を外しております。ご伝言を承りましょうか？", meanings: { "I'm afraid": "あいにく・申し訳ないが", "available": "対応できる・手が空いている", "take a message": "伝言を受ける" } },
+  { col: "c-pbook-phone", en: "Thank you. Could you tell him that I called to get an estimate on a new laptop computer?", ja: "ありがとうございます。新しいノートパソコンの見積もりが欲しくて電話した、と伝えていただけますか？", meanings: { "estimate": "見積もり", "laptop": "ノートパソコン" } },
+  { col: "c-pbook-phone", en: "Certainly. I'll have him call you back when he gets in.", ja: "承知しました。彼が戻りましたら折り返しお電話させます。", meanings: { "certainly": "承知しました", "have him call you back": "彼に折り返させる", "gets in": "戻る・出社する" } },
+
+  // ── 音声07：Practice05 電話対応② col: c-pbook-phone ──
+  { col: "c-pbook-phone", en: "This is George Brown. I got your message, so I'm calling you back.", ja: "ジョージ・ブラウンです。伝言をもらったので折り返しています。", meanings: { "got your message": "伝言を受け取った", "calling you back": "折り返し電話している" } },
+  { col: "c-pbook-phone", en: "Hello, George. Thanks for getting back to me so soon.", ja: "こんにちはジョージ。こんなに早く折り返してくれてありがとう。", meanings: { "getting back to me": "折り返してくれる", "soon": "早く・すぐに" } },
+  { col: "c-pbook-phone", en: "The reason I called you was to get an estimate on that new laptop from your company.", ja: "電話した理由は、御社のあの新しいノートパソコンの見積もりが欲しかったからなんだ。", meanings: { "reason": "理由", "estimate": "見積もり", "laptop": "ノートパソコン", "company": "会社" } },
+  { col: "c-pbook-phone", en: "Oh, I'm preparing the estimate sheet right now.", ja: "ああ、ちょうど今その見積書を準備しているところです。", meanings: { "preparing": "準備している", "estimate sheet": "見積書", "right now": "ちょうど今" } },
+  { col: "c-pbook-phone", en: "If you're in a rush to get the total amount, I can tell you in just a couple of minutes.", ja: "合計金額を急ぎで知りたいなら、ほんの数分でお伝えできますよ。", meanings: { "in a rush": "急いで", "total amount": "合計金額", "a couple of": "2〜3の・数" } },
+  { col: "c-pbook-phone", en: "That'd be great.", ja: "それは助かります。", meanings: { "that'd be great": "それはありがたい・助かる" } },
+  { col: "c-pbook-phone", en: "Ah, but I'm afraid I have to leave my office soon.", ja: "あ、でもあいにくもうすぐオフィスを出ないといけないんです。", meanings: { "I'm afraid": "あいにく", "have to": "〜しなければならない", "leave": "出る・離れる", "soon": "もうすぐ" } },
+  { col: "c-pbook-phone", en: "Could you email it as soon as you're done with it?", ja: "出来上がったらすぐにメールで送ってもらえますか？", meanings: { "email": "メールで送る", "as soon as": "〜するとすぐに", "done with": "〜を終える" } },
+  { col: "c-pbook-phone", en: "Certainly.", ja: "承知しました。", meanings: { "certainly": "承知しました・かしこまりました" } },
+
+  // ── 音声08：Practice06 電話対応③ col: c-pbook-phone ──
+  { col: "c-pbook-phone", en: "Hi, Lily. This is George.", ja: "やあリリー。ジョージだよ。", meanings: { "this is": "〜です（電話で）" } },
+  { col: "c-pbook-phone", en: "I'm just wondering if you have any questions or concerns", ja: "ちょっと聞きたいんだけど、何か質問や気になることはないかな、", meanings: { "wondering if": "〜かなと思う", "questions": "質問", "concerns": "懸念・気になること" } },
+  { col: "c-pbook-phone", en: "about the draft of the next presentation that I sent you yesterday.", ja: "昨日送った次のプレゼンの下書きについて。", meanings: { "draft": "下書き・草案", "presentation": "プレゼン", "sent": "送った" } },
+  { col: "c-pbook-phone", en: "I've looked it over and thought it was great.", ja: "ざっと目を通したけど、すごくいいと思った。", meanings: { "looked it over": "ざっと目を通した", "thought": "思った", "great": "素晴らしい" } },
+  { col: "c-pbook-phone", en: "But, I want to know more about the strategic sales plan.", ja: "でも、戦略的な販売計画についてもっと知りたいな。", meanings: { "strategic": "戦略的な", "sales plan": "販売計画" } },
+  { col: "c-pbook-phone", en: "OK. Why don't we have a lunch meeting tomorrow?", ja: "オーケー。明日ランチミーティングするのはどう？", meanings: { "why don't we": "〜しない？", "lunch meeting": "昼食を兼ねた会議", "tomorrow": "明日" } },
+  { col: "c-pbook-phone", en: "We should make everything clear before we give the presentation to our client.", ja: "クライアントにプレゼンする前に、全部はっきりさせておくべきだね。", meanings: { "make clear": "はっきりさせる", "before": "〜の前に", "presentation": "プレゼン", "client": "顧客" } },
+  { col: "c-pbook-phone", en: "Sounds good. I have another meeting scheduled for tomorrow morning.", ja: "いいね。明日の午前は別の会議が入ってるんだ。", meanings: { "sounds good": "いいね", "another": "別の", "scheduled": "予定されている" } },
+  { col: "c-pbook-phone", en: "So I can make it at 12:30.", ja: "だから12時半なら行けるよ。", meanings: { "make it": "都合がつく・間に合う" } },
+
+  // ── 音声09：Practice07 ミーティング① col: c-pbook-meeting ──
+  { col: "c-pbook-meeting", en: "Is everyone here? Let's get started.", ja: "みんないる？じゃあ始めましょう。", meanings: { "everyone": "みんな", "get started": "始める" } },
+  { col: "c-pbook-meeting", en: "First, thank you for being flexible with your schedules.", ja: "まず、スケジュールを柔軟に調整してくれてありがとう。", meanings: { "first": "まず", "flexible": "柔軟な", "schedules": "予定" } },
+  { col: "c-pbook-meeting", en: "I'm sorry that we had to change the start time for this meeting at the last minute.", ja: "直前になって会議の開始時間を変更することになってごめんね。", meanings: { "had to": "〜せざるを得なかった", "start time": "開始時間", "at the last minute": "直前に・ぎりぎりで" } },
+  { col: "c-pbook-meeting", en: "I'll be the facilitator, and Mary will be taking minutes today.", ja: "今日は私が進行役で、メアリーが議事録を取ります。", meanings: { "facilitator": "進行役・ファシリテーター", "taking minutes": "議事録を取る" } },
+  { col: "c-pbook-meeting", en: "John is absent because he's helping one of our major clients.", ja: "ジョンは主要顧客の1社を対応していて欠席です。", meanings: { "absent": "欠席", "major clients": "主要な顧客", "helping": "手伝っている" } },
+  { col: "c-pbook-meeting", en: "Now, let's get down to business.", ja: "さて、本題に入りましょう。", meanings: { "get down to business": "本題に入る" } },
+  { col: "c-pbook-meeting", en: "Today's agenda is our sales plan for the next quarter.", ja: "今日の議題は来四半期の販売計画です。", meanings: { "agenda": "議題", "sales plan": "販売計画", "quarter": "四半期" } },
+  { col: "c-pbook-meeting", en: "First, I'd like to share my ideas about the sales forecast.", ja: "まず、売上予測についての私の考えを共有したいと思います。", meanings: { "share": "共有する", "sales forecast": "売上予測" } },
+  { col: "c-pbook-meeting", en: "Then, we'll start brainstorming about how to increase sales in the next quarter.", ja: "それから、来四半期に売上を伸ばす方法をブレストし始めます。", meanings: { "brainstorming": "ブレインストーミング・アイデア出し", "increase": "増やす", "sales": "売上" } },
+  { col: "c-pbook-meeting", en: "We'll have 30 minutes for brainstorming.", ja: "ブレストには30分とります。", meanings: { "minutes": "分", "brainstorming": "アイデア出し" } },
+  { col: "c-pbook-meeting", en: "The meeting will finish by 2:30.", ja: "会議は2時半までに終わります。", meanings: { "finish": "終わる", "by": "〜までに" } },
+];
+
+function getPbookSeed() {
+  return PBOOK_DATA.map((d, i) => ({
+    id: 200 + i + 1,
+    collectionId: d.col,
+    text: d.en,
+    ja: d.ja || "",
+    meanings: d.meanings || {},
+  }));
+}
+
+// 全シードデータ定義後に sentences を初期化
+sentences = loadSentences();
 
 function autoKeywords(text) {
   const tokens = tokenize(text);
